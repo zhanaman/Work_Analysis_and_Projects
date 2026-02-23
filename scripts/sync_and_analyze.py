@@ -87,19 +87,31 @@ def compare_with_previous(new_df, current_name):
     
     diff = len(new_df) - len(old_df)
     if diff > 0:
-        print(f"📈 Added {diff} new entries.")
+        print(f"📈 Добавлено {diff} новых записей.")
     elif diff < 0:
-        print(f"📉 Removed {abs(diff)} entries.")
+        print(f"📉 Удалено {abs(diff)} записей.")
     else:
-        print("⚖️ No change in row count.")
+        print("⚖️ Количественных изменений нет.")
     
+    # Детальный анализ по категориям (Source_Sheet)
+    print("\nДетализация по категориям:")
+    for sheet in new_df['Source_Sheet'].unique():
+        n_sheet = len(new_df[new_df['Source_Sheet'] == sheet])
+        o_sheet = len(old_df[old_df['Source_Sheet'] == sheet]) if 'Source_Sheet' in old_df.columns else 0
+        if n_sheet != o_sheet:
+            diff_s = n_sheet - o_sheet
+            print(f"  - {sheet}: {'+' if diff_s > 0 else ''}{diff_s} записей (всего {n_sheet})")
+
+    # Краткая аналитика по странам
+    print("\nИзменения по странам:")
     new_counts = new_df['Country'].value_counts()
     old_counts = old_df['Country'].value_counts()
     
     for c in TARGET_COUNTRIES:
         n, o = new_counts.get(c, 0), old_counts.get(c, 0)
         if n != o:
-            print(f"  - {c}: {o} -> {n}")
+            diff_c = n - o
+            print(f"  - {c}: {'+' if diff_c > 0 else ''}{diff_c} ({o} -> {n})")
 
 if __name__ == '__main__':
     process_file()
