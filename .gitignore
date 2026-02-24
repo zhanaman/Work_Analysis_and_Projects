@@ -1,5 +1,4 @@
 .DS_Store
-data/raw/*.xlsx
-data/processed/*.csv
+data/
 __pycache__/
 *.pyc
