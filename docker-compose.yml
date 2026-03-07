@@ -1,0 +1,33 @@
+services:
+  bot:
+    build: .
+    container_name: pbm-partner-bot
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data  # For Excel file uploads
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: pbm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pbm_partners
+      POSTGRES_USER: pbm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"  # Use 5433 to avoid conflicts with existing PG
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations/001_init.up.sql:/docker-entrypoint-initdb.d/001_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pbm -d pbm_partners"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
