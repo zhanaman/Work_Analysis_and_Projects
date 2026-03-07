@@ -46,7 +46,9 @@ func Auth(userRepo *storage.UserRepo, adminID int64) bot.Middleware {
 
 			// Auto-promote admin by Telegram ID
 			if tgUser.ID == adminID && user.Role != domain.RoleAdmin {
-				_ = userRepo.SetRole(ctx, tgUser.ID, domain.RoleAdmin)
+				if err := userRepo.SetRole(ctx, tgUser.ID, domain.RoleAdmin); err != nil {
+				slog.Error("auth middleware: failed to promote admin", "error", err, "telegram_id", tgUser.ID)
+			}
 				user.Role = domain.RoleAdmin
 			}
 
