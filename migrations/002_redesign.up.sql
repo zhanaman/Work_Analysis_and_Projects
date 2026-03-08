@@ -153,6 +153,7 @@ CREATE TABLE users (
 CREATE TABLE import_log (
     id              SERIAL PRIMARY KEY,
     filename        TEXT NOT NULL,
+    data_date       DATE,                             -- Date extracted from filename
     sheets_parsed   TEXT[],
     partners_total  INT,
     partners_cca    INT,

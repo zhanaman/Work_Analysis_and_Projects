@@ -9,9 +9,10 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Build binary
+# Build binaries
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bot ./cmd/bot/
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /importer ./cmd/import/
 
 # Runtime stage
 FROM alpine:3.21
@@ -24,7 +25,11 @@ RUN adduser -D -g '' appuser
 WORKDIR /app
 
 COPY --from=builder /bot /app/bot
+COPY --from=builder /importer /app/importer
 COPY migrations/ /app/migrations/
+
+# Data directory for Excel uploads
+RUN mkdir -p /app/data && chown appuser:appuser /app/data
 
 USER appuser
 

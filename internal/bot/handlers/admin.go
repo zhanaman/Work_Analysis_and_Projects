@@ -42,13 +42,6 @@ func (h *AdminHandler) HandleStats(ctx context.Context, b *bot.Bot, update *mode
 	count, _ := h.partnerRepo.CountAll(ctx)
 	dist, _ := h.partnerRepo.TierDistribution(ctx, "")
 
-	// Count above-business
-	aboveBP := 0
-	for _, td := range dist {
-		aboveBP += td["platinum"] + td["gold"] + td["silver"]
-	}
-	aboveBP = aboveBP / 3 // average across centers to avoid triple-counting
-
 	var sb strings.Builder
 	sb.WriteString("📊 <b>CCA Dashboard</b>\n")
 	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n\n")
@@ -57,6 +50,16 @@ func (h *AdminHandler) HandleStats(ctx context.Context, b *bot.Bot, update *mode
 		dist["compute"]["platinum"],
 		dist["compute"]["gold"],
 		dist["compute"]["silver"]))
+
+	// Data date
+	dataDate, importedAt, err := h.partnerRepo.GetLastImportDate(ctx)
+	if err == nil {
+		if dataDate != "" {
+			sb.WriteString(fmt.Sprintf("📅 Данные от: <b>%s</b>\n", dataDate))
+		} else {
+			sb.WriteString(fmt.Sprintf("📅 Импорт: %s\n", importedAt))
+		}
+	}
 
 	buttons := [][]models.InlineKeyboardButton{
 		{

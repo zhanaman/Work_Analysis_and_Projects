@@ -53,3 +53,35 @@ tidy:
 help:
 	@echo "Available targets:"
 	@grep -E '^##' Makefile | sed 's/## /  /'
+
+# === Remote deployment ===
+VPS_HOST=root@31.44.6.132
+VPS_KEY=~/.ssh/id_vps_ynab
+VPS_DIR=/root/pbm_bot
+
+## upload: Upload Excel to production and import (usage: make upload FILE=path/to/file.xlsx)
+upload:
+ifndef FILE
+	$(error Usage: make upload FILE=path/to/file.xlsx)
+endif
+	@echo "📤 Uploading $(FILE) to server..."
+	scp -i $(VPS_KEY) "$(FILE)" $(VPS_HOST):$(VPS_DIR)/data/
+	@echo "📊 Running import..."
+	ssh -i $(VPS_KEY) $(VPS_HOST) "docker exec pbm-partner-bot /app/importer -file /app/data/$$(basename '$(FILE)') -dsn \$$(cat $(VPS_DIR)/.env | grep POSTGRES_DSN | cut -d= -f2-)"
+	@echo "🗑️  Cleaning up file on server..."
+	ssh -i $(VPS_KEY) $(VPS_HOST) "rm -f $(VPS_DIR)/data/$$(basename '$(FILE)')"
+	@echo "✅ Import complete!"
+
+## deploy: Deploy latest code to production
+deploy:
+	git push
+	ssh -i $(VPS_KEY) $(VPS_HOST) "cd $(VPS_DIR) && git pull && docker compose up --build -d"
+	@echo "✅ Deployed!"
+
+## import-local: Import Excel locally (usage: make import-local FILE=path/to/file.xlsx)
+import-local:
+ifndef FILE
+	$(error Usage: make import-local FILE=path/to/file.xlsx)
+endif
+	go run ./cmd/import/ -file "$(FILE)"
+
