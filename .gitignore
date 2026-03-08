@@ -3,8 +3,8 @@
 *.dll
 *.so
 *.dylib
-bot
-pbm-partner-bot
+/bot
+/pbm-partner-bot
 
 # Environment
 .env
@@ -30,4 +30,4 @@ data/
 # Docker volumes
 pgdata/
 .agents/
-import
+/import
