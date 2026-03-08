@@ -51,6 +51,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "reject:", bot.MatchTypePrefix, adminHandler.HandleApproveCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "stats:", bot.MatchTypePrefix, adminHandler.HandleStatsCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "menu:", bot.MatchTypePrefix, handlers.HandleMenuCallback(searchHandler, adminHandler))
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "chart:", bot.MatchTypePrefix, adminHandler.HandleChartCallback)
 
 	// Register bot commands for the "/" menu
 	b.SetMyCommands(ctx, &bot.SetMyCommandsParams{

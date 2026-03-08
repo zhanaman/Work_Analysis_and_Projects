@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/bot/middleware"
+	"github.com/anonimouskz/pbm-partner-bot/internal/chart"
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
 	"github.com/anonimouskz/pbm-partner-bot/internal/storage"
 	"github.com/go-telegram/bot"
@@ -63,8 +64,15 @@ func (h *AdminHandler) HandleStats(ctx context.Context, b *bot.Bot, update *mode
 			{Text: "🏅 Тиры", CallbackData: "stats:tiers"},
 		},
 		{
-			{Text: "📈 Upgrade", CallbackData: "stats:upgrade"},
+			{Text: "📈 Gaps", CallbackData: "stats:upgrade"},
 			{Text: "💰 Top Volume", CallbackData: "stats:volume"},
+		},
+		{
+			{Text: "📊 Chart: Тиры", CallbackData: "chart:tiers"},
+			{Text: "📊 Chart: Страны", CallbackData: "chart:countries"},
+		},
+		{
+			{Text: "📊 Chart: Volume", CallbackData: "chart:volume"},
 		},
 	}
 
@@ -120,10 +128,15 @@ func (h *AdminHandler) HandleStatsCallback(ctx context.Context, b *bot.Bot, upda
 			{Text: "🏅 Тиры", CallbackData: "stats:tiers"},
 		},
 		{
-			{Text: "📈 Upgrade", CallbackData: "stats:upgrade"},
+			{Text: "📈 Gaps", CallbackData: "stats:upgrade"},
 			{Text: "💰 Top Volume", CallbackData: "stats:volume"},
 		},
 		{
+			{Text: "📊 Chart: Тиры", CallbackData: "chart:tiers"},
+			{Text: "📊 Chart: Страны", CallbackData: "chart:countries"},
+		},
+		{
+			{Text: "📊 Chart: Volume", CallbackData: "chart:volume"},
 			{Text: "🔍 Поиск", CallbackData: "menu:search"},
 		},
 	}
@@ -428,4 +441,144 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 		ChatID: targetID,
 		Text:   "🎉 Ваш доступ к боту одобрен! Используйте /help для списка команд.",
 	})
+}
+
+// HandleChartCallback sends chart images based on callback data.
+func (h *AdminHandler) HandleChartCallback(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+
+	user := middleware.UserFromContext(ctx)
+	if user == nil || !user.IsAuthorized() {
+		return
+	}
+
+	section := strings.TrimPrefix(update.CallbackQuery.Data, "chart:")
+
+	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+		Text:            "📊 Generating chart...",
+	})
+
+	var chatID int64
+	if update.CallbackQuery.Message.Message != nil {
+		chatID = update.CallbackQuery.Message.Message.Chat.ID
+	}
+	if chatID == 0 {
+		return
+	}
+
+	var chartURL string
+	var caption string
+
+	switch section {
+	case "tiers":
+		chartURL, caption = h.chartTiers(ctx)
+	case "countries":
+		chartURL, caption = h.chartCountries(ctx)
+	case "volume":
+		chartURL, caption = h.chartVolume(ctx)
+	default:
+		return
+	}
+
+	if chartURL == "" {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: chatID,
+			Text:   "❌ Не удалось создать график. Нет данных.",
+		})
+		return
+	}
+
+	navButtons := [][]models.InlineKeyboardButton{
+		{
+			{Text: "📊 Тиры", CallbackData: "chart:tiers"},
+			{Text: "📊 Страны", CallbackData: "chart:countries"},
+			{Text: "📊 Volume", CallbackData: "chart:volume"},
+		},
+		{
+			{Text: "📋 Dashboard", CallbackData: "menu:stats"},
+			{Text: "🔍 Поиск", CallbackData: "menu:search"},
+		},
+	}
+
+	b.SendPhoto(ctx, &bot.SendPhotoParams{
+		ChatID:    chatID,
+		Photo:     &models.InputFileString{Data: chartURL},
+		Caption:   caption,
+		ParseMode: models.ParseModeHTML,
+		ReplyMarkup: &models.InlineKeyboardMarkup{
+			InlineKeyboard: navButtons,
+		},
+	})
+}
+
+func (h *AdminHandler) chartTiers(ctx context.Context) (string, string) {
+	dist, err := h.partnerRepo.TierDistribution(ctx, "")
+	if err != nil || len(dist) == 0 {
+		return "", ""
+	}
+
+	// Use compute center as primary
+	computeDist := dist["compute"]
+	if len(computeDist) == 0 {
+		return "", ""
+	}
+
+	url := chart.TierDoughnutURL(computeDist, "Compute")
+
+	total := computeDist["platinum"] + computeDist["gold"] + computeDist["silver"] + computeDist["business"]
+	caption := fmt.Sprintf("📊 <b>Compute Tier Distribution</b>\n"+
+		"💎 %d  •  🥇 %d  •  🥈 %d  •  🏷 %d  •  Total: %d",
+		computeDist["platinum"], computeDist["gold"], computeDist["silver"], computeDist["business"], total)
+
+	return url, caption
+}
+
+func (h *AdminHandler) chartCountries(ctx context.Context) (string, string) {
+	matrix, err := h.partnerRepo.CountryTierMatrix(ctx)
+	if err != nil || len(matrix) == 0 {
+		return "", ""
+	}
+
+	var countries []string
+	var plat, gold, silver, biz []int
+
+	for _, r := range matrix {
+		countries = append(countries, r.Country)
+		plat = append(plat, r.Plat)
+		gold = append(gold, r.Gold)
+		silver = append(silver, r.Silver)
+		biz = append(biz, r.Biz)
+	}
+
+	url := chart.CountryStackedBarURL(countries, plat, gold, silver, biz)
+	caption := fmt.Sprintf("📊 <b>Partners by Country</b> (%d countries)", len(countries))
+
+	return url, caption
+}
+
+func (h *AdminHandler) chartVolume(ctx context.Context) (string, string) {
+	top, err := h.partnerRepo.TopVolumePartners(ctx, 7)
+	if err != nil || len(top) == 0 {
+		return "", ""
+	}
+
+	var names []string
+	var volumes []float64
+
+	for _, t := range top {
+		name := t.Name
+		if len(name) > 20 {
+			name = name[:17] + "..."
+		}
+		names = append(names, name)
+		volumes = append(volumes, t.Volume)
+	}
+
+	url := chart.VolumeTopBarURL(names, volumes)
+	caption := "📊 <b>Top Partners by Volume</b> (Compute)"
+
+	return url, caption
 }
