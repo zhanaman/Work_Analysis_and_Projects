@@ -28,7 +28,6 @@ func (h *PartnerHandler) HandleCallback(ctx context.Context, b *bot.Bot, update 
 		return
 	}
 
-	// Parse partner ID from callback data
 	data := update.CallbackQuery.Data
 	if !strings.HasPrefix(data, "partner:") {
 		return
@@ -50,125 +49,224 @@ func (h *PartnerHandler) HandleCallback(ctx context.Context, b *bot.Bot, update 
 		return
 	}
 
-	// Answer callback to remove loading indicator
 	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 		CallbackQueryID: update.CallbackQuery.ID,
 	})
 
-	// Send partner card
 	card := formatPartnerCard(partner)
 
 	var chatID int64
+	var msgID int
 	if update.CallbackQuery.Message.Message != nil {
 		chatID = update.CallbackQuery.Message.Message.Chat.ID
+		msgID = update.CallbackQuery.Message.Message.ID
 	}
 	if chatID == 0 {
 		return
 	}
 
-	b.SendMessage(ctx, &bot.SendMessageParams{
+	buttons := [][]models.InlineKeyboardButton{
+		{
+			{Text: "🔍 Новый поиск", CallbackData: "menu:search"},
+		},
+	}
+
+	b.EditMessageText(ctx, &bot.EditMessageTextParams{
 		ChatID:    chatID,
+		MessageID: msgID,
 		Text:      card,
 		ParseMode: models.ParseModeHTML,
+		ReplyMarkup: models.InlineKeyboardMarkup{
+			InlineKeyboard: buttons,
+		},
 	})
 }
 
-// formatPartnerCard creates a rich HTML-formatted partner card.
+// formatPartnerCard builds a complete partner card with inline details.
 func formatPartnerCard(p *domain.Partner) string {
-	certIcon := func(cert string) string {
-		if cert == "" || cert == "-" || cert == "N/A" {
-			return "❌"
-		}
-		return "✅"
+	var sb strings.Builder
+
+	// Header
+	sb.WriteString(fmt.Sprintf("🏢 <b>%s</b>\n", p.Name))
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString(fmt.Sprintf("📍 %s  •  <code>%s</code>\n", p.Country, p.PartyID))
+
+	// Partner type
+	ptype := partnerType(p)
+	if ptype != "" {
+		sb.WriteString(fmt.Sprintf("🏷 %s\n", ptype))
 	}
 
-	certLine := func(name, cert string) string {
-		icon := certIcon(cert)
-		if cert == "" || cert == "-" || cert == "N/A" {
-			cert = "—"
-		}
-		return fmt.Sprintf("  %s %s: %s", icon, name, cert)
+	sb.WriteString("\n")
+
+	// Each center — full inline details
+	type centerDef struct {
+		center     domain.Center
+		membership string
+		name       string
+	}
+	centers := []centerDef{
+		{domain.CenterCompute, p.MembershipCompute, "Compute"},
+		{domain.CenterHybridCloud, p.MembershipHC, "Hybrid Cloud"},
+		{domain.CenterNetworking, p.MembershipNetworking, "Networking"},
 	}
 
-	gapToNext := calculateGap(p)
+	totalGaps := 0
+	allReady := true
 
-	card := fmt.Sprintf(`🏢 <b>%s</b>
-━━━━━━━━━━━━━━━━━
-🆔 %s
-🏅 Tier: <b>%s</b>
-📍 %s, %s
-
-📊 <b>Certifications:</b>
-%s
-%s
-%s
-%s
-
-💰 <b>Revenue YTD:</b> $%s / $%s
-%s`,
-		p.Name,
-		p.PartnerID,
-		tierDisplay(p.Tier),
-		p.City, p.Country,
-		certLine("Compute", p.ComputeCert),
-		certLine("Networking", p.NetworkingCert),
-		certLine("Hybrid Cloud", p.HybridCloud),
-		certLine("Storage", p.StorageCert),
-		formatNumber(p.RevenueYTD),
-		formatNumber(p.Target),
-		gapToNext,
-	)
-
-	// Add contact info if available
-	if p.ContactName != "" {
-		card += fmt.Sprintf("\n\n👤 <b>Contact:</b> %s", p.ContactName)
-		if p.ContactEmail != "" {
-			card += fmt.Sprintf("\n📧 %s", p.ContactEmail)
+	for _, ci := range centers {
+		if ci.membership == "" {
+			continue
 		}
-		if p.ContactPhone != "" {
-			card += fmt.Sprintf("\n📱 %s", p.ContactPhone)
+
+		var centerTiers []domain.PartnerTier
+		for _, t := range p.Tiers {
+			if t.Center == ci.center {
+				centerTiers = append(centerTiers, t)
+			}
+		}
+
+		readiness := domain.CalculateReadiness(ci.membership, centerTiers, ci.center)
+
+		if readiness == nil || readiness.NextTier == "" {
+			// Max tier
+			sb.WriteString(fmt.Sprintf("<b>%s</b>  %s ✅\n\n", ci.name, tierBadge(ci.membership)))
+		} else if readiness.IsReady {
+			// Ready for upgrade
+			sb.WriteString(fmt.Sprintf("<b>%s</b>  %s → %s ✅\n\n",
+				ci.name, tierBadge(ci.membership), tierBadge(string(readiness.NextTier))))
+		} else {
+			// Has gaps — show ONLY what's failing
+			allReady = false
+			gapCount := len(readiness.Blockers)
+			totalGaps += gapCount
+
+			sb.WriteString(fmt.Sprintf("<b>%s</b>  %s → %s\n",
+				ci.name, tierBadge(ci.membership), tierBadge(string(readiness.NextTier))))
+			sb.WriteString(fmt.Sprintf("%d gaps:\n", gapCount))
+
+			// Volume — only if FAILED
+			if readiness.Volume.Required > 0 && !readiness.Volume.Met {
+				sb.WriteString(fmt.Sprintf("  ❌ Volume %s / %s\n",
+					formatNumber(readiness.Volume.Actuals),
+					formatNumber(readiness.Volume.Required)))
+			}
+
+			// SRI — only if FAILED
+			if readiness.SRI.Required > 0 && readiness.SRI.Required < domain.SRISentinel && !readiness.SRI.Met {
+				sb.WriteString(fmt.Sprintf("  ❌ SRI %.1f / %.1f\n",
+					readiness.SRI.Actuals, readiness.SRI.Required))
+			}
+
+			// Certs — only FAILED ones
+			certGaps := formatCertGapsOnly(readiness)
+			if certGaps != "" {
+				sb.WriteString(fmt.Sprintf("  ❌ %s\n", certGaps))
+			}
+
+			sb.WriteString("\n")
 		}
 	}
 
-	return card
+	// FY27 Readiness + L&R
+	sb.WriteString("\n")
+	if allReady {
+		sb.WriteString("🟢 <b>FY27 Ready</b>\n")
+	} else {
+		sb.WriteString("🔴 <b>FY27 Not Ready</b>\n")
+	}
+
+	if p.LRStatus != "" {
+		if strings.EqualFold(p.LRStatus, "Yes") {
+			sb.WriteString("📋 L&R ✅\n")
+		} else {
+			sb.WriteString("📋 L&R ❌\n")
+		}
+	}
+
+	return sb.String()
 }
 
-func tierDisplay(tier string) string {
-	switch strings.ToLower(tier) {
-	case "platinum":
+// partnerType builds a human-readable partner type string.
+func partnerType(p *domain.Partner) string {
+	var types []string
+	if p.BusinessRelSP != "" {
+		types = append(types, p.BusinessRelSP)
+	}
+	if p.BusinessRelSvc != "" {
+		types = append(types, p.BusinessRelSvc)
+	}
+	if p.BusinessRelSI != "" {
+		types = append(types, p.BusinessRelSI)
+	}
+	return strings.Join(types, " | ")
+}
+
+// formatCertsCompact returns "Sales 2/3 ❌ • ASE 2/2 ✅"
+func formatCertsCompact(r *domain.TierReadiness) string {
+	var parts []string
+	add := func(name string, have, need int, met bool) {
+		if need > 0 {
+			icon := "✅"
+			if !met {
+				icon = "❌"
+			}
+			parts = append(parts, fmt.Sprintf("%s %d/%d %s", name, have, need, icon))
+		}
+	}
+	add("Sales", r.Certs.SalesHave, r.Certs.SalesNeed, r.Certs.SalesMet)
+	add("ATP", r.Certs.ATPHave, r.Certs.ATPNeed, r.Certs.ATPMet)
+	add("ASE", r.Certs.ASEHave, r.Certs.ASENeed, r.Certs.ASEMet)
+	add("MASE", r.Certs.MASEHave, r.Certs.MASENeed, r.Certs.MASEMet)
+	return strings.Join(parts, " • ")
+}
+
+// formatCertGapsOnly returns only FAILED certs, e.g. "MASE 0/1, Sales 0/2"
+func formatCertGapsOnly(r *domain.TierReadiness) string {
+	var parts []string
+	add := func(name string, have, need int, met bool) {
+		if need > 0 && !met {
+			parts = append(parts, fmt.Sprintf("%s %d/%d", name, have, need))
+		}
+	}
+	add("Sales", r.Certs.SalesHave, r.Certs.SalesNeed, r.Certs.SalesMet)
+	add("ATP", r.Certs.ATPHave, r.Certs.ATPNeed, r.Certs.ATPMet)
+	add("ASE", r.Certs.ASEHave, r.Certs.ASENeed, r.Certs.ASEMet)
+	add("MASE", r.Certs.MASEHave, r.Certs.MASENeed, r.Certs.MASEMet)
+	return strings.Join(parts, ", ")
+}
+
+// tierBadge returns "🥇 Gold" etc.
+func tierBadge(tier string) string {
+	t := strings.ToLower(tier)
+	switch {
+	case strings.Contains(t, "platinum"):
 		return "💎 Platinum"
-	case "gold":
+	case strings.Contains(t, "gold"):
 		return "🥇 Gold"
-	case "silver":
+	case strings.Contains(t, "silver"):
 		return "🥈 Silver"
-	case "business":
-		return "🏷️ Business"
+	case strings.Contains(t, "business"):
+		return "🏷 BP"
 	default:
+		if tier == "" {
+			return "—"
+		}
 		return tier
 	}
 }
 
-func calculateGap(p *domain.Partner) string {
-	if p.Target <= 0 {
-		return ""
-	}
-	gap := p.Target - p.RevenueYTD
-	if gap <= 0 {
-		return "📈 🎉 Target reached!"
-	}
-	pct := (p.RevenueYTD / p.Target) * 100
-	return fmt.Sprintf("📈 Gap: $%s (%.0f%% complete)", formatNumber(gap), pct)
-}
+func tierDisplay(tier string) string { return tierBadge(tier) }
 
 func formatNumber(n float64) string {
 	if n == 0 {
-		return "0"
+		return "$0"
 	}
 	if n >= 1_000_000 {
-		return fmt.Sprintf("%.1fM", n/1_000_000)
+		return fmt.Sprintf("$%.1fM", n/1_000_000)
 	}
 	if n >= 1_000 {
-		return fmt.Sprintf("%.0fK", n/1_000)
+		return fmt.Sprintf("$%.0fK", n/1_000)
 	}
-	return fmt.Sprintf("%.0f", n)
+	return fmt.Sprintf("$%.0f", n)
 }

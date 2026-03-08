@@ -1,0 +1,9 @@
+-- Rollback migration 002
+DROP TABLE IF EXISTS import_log CASCADE;
+DROP TABLE IF EXISTS partner_scs CASCADE;
+DROP TABLE IF EXISTS partner_revenue CASCADE;
+DROP TABLE IF EXISTS partner_comp_levels CASCADE;
+DROP TABLE IF EXISTS partner_competencies CASCADE;
+DROP TABLE IF EXISTS partner_tiers CASCADE;
+DROP TABLE IF EXISTS partners CASCADE;
+DROP TABLE IF EXISTS users CASCADE;

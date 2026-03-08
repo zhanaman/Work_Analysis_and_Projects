@@ -22,7 +22,7 @@ services:
       - "5433:5432"  # Use 5433 to avoid conflicts with existing PG
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./migrations/001_init.up.sql:/docker-entrypoint-initdb.d/001_init.sql
+      - ./migrations/002_redesign.up.sql:/docker-entrypoint-initdb.d/001_schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pbm -d pbm_partners"]
       interval: 5s

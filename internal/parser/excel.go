@@ -3,28 +3,46 @@ package parser
 import (
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
 	"github.com/xuri/excelize/v2"
 )
 
-// ExcelParser reads partner data from an Excel file using streaming.
+// ParseResult holds the result of parsing the Excel file.
+type ParseResult struct {
+	Partners     map[string]*domain.Partner // keyed by party_id
+	TotalRows    int
+	CCARows      int
+	SkippedRows  int
+	SheetsParsed []string
+	Duration     time.Duration
+}
+
+// ExcelParser reads partner data from an HPE Excel file.
 type ExcelParser struct {
-	filePath string
+	filePath     string
+	filterCCA    bool // if true, only include CCA partners
+	configs      []CenterConfig
 }
 
 // NewExcelParser creates a new parser for the given file.
-func NewExcelParser(filePath string) *ExcelParser {
-	return &ExcelParser{filePath: filePath}
+func NewExcelParser(filePath string, filterCCA bool) *ExcelParser {
+	return &ExcelParser{
+		filePath:  filePath,
+		filterCCA: filterCCA,
+		configs:   CenterConfigs,
+	}
 }
 
-// Parse reads all sheets and extracts partner data.
-// It uses streaming read to handle large files (96MB+) efficiently.
-func (p *ExcelParser) Parse() ([]domain.Partner, error) {
+// Parse reads all center sheets and extracts partner data.
+func (p *ExcelParser) Parse() (*ParseResult, error) {
+	start := time.Now()
+
 	f, err := excelize.OpenFile(p.filePath, excelize.Options{
-		UnzipSizeLimit: 512 << 20, // 512 MB unzip limit
+		UnzipSizeLimit:    2 << 30, // 2 GB (88MB file decompresses to ~1.5GB)
+		UnzipXMLSizeLimit: 1 << 30, // 1 GB
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open excel file: %w", err)
@@ -32,175 +50,197 @@ func (p *ExcelParser) Parse() ([]domain.Partner, error) {
 	defer f.Close()
 
 	sheets := f.GetSheetList()
-	slog.Info("found sheets", "count", len(sheets), "sheets", sheets)
+	slog.Info("opened excel file", "sheets", len(sheets), "file", p.filePath)
 
-	var allPartners []domain.Partner
-
-	for _, sheet := range sheets {
-		slog.Info("parsing sheet", "name", sheet)
-		partners, err := p.parseSheet(f, sheet)
-		if err != nil {
-			slog.Warn("skipping sheet", "name", sheet, "error", err)
-			continue
-		}
-		slog.Info("parsed sheet", "name", sheet, "partners", len(partners))
-		allPartners = append(allPartners, partners...)
+	result := &ParseResult{
+		Partners: make(map[string]*domain.Partner),
 	}
 
-	return allPartners, nil
+	for _, cfg := range p.configs {
+		// Verify sheet exists
+		found := false
+		for _, s := range sheets {
+			if s == cfg.SheetName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			slog.Warn("sheet not found, skipping", "sheet", cfg.SheetName)
+			continue
+		}
+
+		parsed, err := p.parseSheet(f, cfg)
+		if err != nil {
+			slog.Error("error parsing sheet", "sheet", cfg.SheetName, "error", err)
+			continue
+		}
+
+		result.SheetsParsed = append(result.SheetsParsed, cfg.SheetName)
+		result.TotalRows += parsed.totalRows
+		result.CCARows += parsed.ccaRows
+		result.SkippedRows += parsed.skippedRows
+
+		// Merge parsed data into result
+		for partyID, data := range parsed.partners {
+			existing, ok := result.Partners[partyID]
+			if !ok {
+				result.Partners[partyID] = data
+			} else {
+				// Merge tier data from this center into existing partner
+				existing.Tiers = append(existing.Tiers, data.Tiers...)
+				if len(data.Competencies) > 0 {
+					existing.Competencies = data.Competencies // competencies come from any sheet
+				}
+				if len(data.CompLevels) > 0 {
+					existing.CompLevels = append(existing.CompLevels, data.CompLevels...)
+				}
+			}
+		}
+
+		slog.Info("parsed sheet",
+			"sheet", cfg.SheetName,
+			"total", parsed.totalRows,
+			"cca", parsed.ccaRows,
+			"skipped", parsed.skippedRows,
+		)
+	}
+
+	result.Duration = time.Since(start)
+	slog.Info("parsing complete",
+		"partners", len(result.Partners),
+		"total_rows", result.TotalRows,
+		"cca_rows", result.CCARows,
+		"duration", result.Duration,
+	)
+
+	return result, nil
 }
 
-// parseSheet parses a single sheet using streaming row iterator.
-func (p *ExcelParser) parseSheet(f *excelize.File, sheet string) ([]domain.Partner, error) {
-	rows, err := f.Rows(sheet)
+// sheetParseResult holds per-sheet parsing results.
+type sheetParseResult struct {
+	partners    map[string]*domain.Partner
+	totalRows   int
+	ccaRows     int
+	skippedRows int
+}
+
+// parseSheet parses a single center sheet.
+func (p *ExcelParser) parseSheet(f *excelize.File, cfg CenterConfig) (*sheetParseResult, error) {
+	rows, err := f.Rows(cfg.SheetName)
 	if err != nil {
-		return nil, fmt.Errorf("create row iterator for sheet %q: %w", sheet, err)
+		return nil, fmt.Errorf("create row iterator for sheet %q: %w", cfg.SheetName, err)
 	}
 	defer rows.Close()
 
-	// Read header row to determine column mapping
-	if !rows.Next() {
-		return nil, fmt.Errorf("sheet %q is empty", sheet)
-	}
-
-	headerRow, err := rows.Columns()
-	if err != nil {
-		return nil, fmt.Errorf("read header row: %w", err)
-	}
-
-	colMap := buildColumnMap(headerRow)
-	slog.Debug("column mapping", "sheet", sheet, "columns", colMap)
-
-	// Parse data rows
-	var partners []domain.Partner
-	rowNum := 1
+	// Read header row (Row 1 or Row 2 depending on center)
+	var headerRow []string
+	rowNum := 0
 
 	for rows.Next() {
 		rowNum++
 		cols, err := rows.Columns()
 		if err != nil {
-			slog.Warn("error reading row", "sheet", sheet, "row", rowNum, "error", err)
+			return nil, fmt.Errorf("read row %d: %w", rowNum, err)
+		}
+
+		if rowNum == cfg.HeaderRow {
+			headerRow = cols
+			break
+		}
+	}
+
+	if len(headerRow) == 0 {
+		return nil, fmt.Errorf("no header row found at row %d in sheet %q", cfg.HeaderRow, cfg.SheetName)
+	}
+
+	cm := buildColumnMap(headerRow)
+	slog.Debug("column map built", "sheet", cfg.SheetName, "columns", len(cm)/2) // /2 because we store both cases
+
+	result := &sheetParseResult{
+		partners: make(map[string]*domain.Partner),
+	}
+
+	// Parse data rows
+	for rows.Next() {
+		rowNum++
+		cols, err := rows.Columns()
+		if err != nil {
+			slog.Warn("error reading row", "sheet", cfg.SheetName, "row", rowNum, "error", err)
 			continue
 		}
 
-		partner := mapRowToPartner(cols, colMap)
-		if partner.Name == "" {
-			continue // Skip rows without a partner name
+		result.totalRows++
+
+		// Extract partner identity
+		partner := mapPartnerFromRow(cols, cm)
+		if partner.PartyID == "" || partner.Name == "" {
+			result.skippedRows++
+			continue
 		}
 
-		partners = append(partners, partner)
+		// CCA filter
+		if p.filterCCA {
+			if !IsCCACountry(partner.Country) && !IsCCAByOrg(partner.HPEOrg) {
+				result.skippedRows++
+				continue
+			}
+		}
+
+		result.ccaRows++
+
+		// Get or create partner in result map
+		existing, ok := result.partners[partner.PartyID]
+		if !ok {
+			existing = &partner
+			result.partners[partner.PartyID] = existing
+		}
+
+		// Extract tier data for all 4 tiers in this center
+		tiers := []domain.Tier{
+			domain.TierBusiness,
+			domain.TierSilver,
+			domain.TierGold,
+			domain.TierPlatinum,
+		}
+
+		for _, tier := range tiers {
+			tierData := mapTierFromRow(cols, cm, cfg.Prefix, tier)
+			// Only add tier if it has meaningful data (at least threshold or criteria)
+			if tierData.Threshold > 0 || tierData.CriteriaMet || tierData.VolumeActuals > 0 {
+				existing.Tiers = append(existing.Tiers, tierData)
+			}
+		}
+
+		// Extract competencies (same across centers, so only from Compute/HC sheets)
+		if cfg.Center == domain.CenterCompute || cfg.Center == domain.CenterHybridCloud {
+			comps := mapCompetenciesFromRow(cols, cm)
+			if len(comps) > 0 {
+				existing.Competencies = comps
+			}
+		}
+
+		// Extract quarterly comp levels
+		compLevels := mapCompLevelsFromRow(cols, cm, cfg.Prefix)
+		if len(compLevels) > 0 {
+			existing.CompLevels = append(existing.CompLevels, compLevels...)
+		}
 	}
 
-	return partners, nil
+	return result, nil
 }
 
-// columnMap maps semantic field names to column indices.
-type columnMap map[string]int
-
-// buildColumnMap creates a mapping from header names to column indices.
-// This is flexible and handles multiple naming conventions.
-func buildColumnMap(headers []string) columnMap {
-	cm := make(columnMap)
-
-	for i, h := range headers {
-		h = strings.TrimSpace(strings.ToLower(h))
-
-		switch {
-		// Partner name
-		case contains(h, "partner name", "company name", "partner", "name"):
-			cm["name"] = i
-
-		// Partner ID
-		case contains(h, "partner id", "hpe id", "said", "account id"):
-			cm["partner_id"] = i
-
-		// Tier
-		case contains(h, "tier", "level", "status"):
-			cm["tier"] = i
-
-		// Country
-		case contains(h, "country"):
-			cm["country"] = i
-
-		// City
-		case contains(h, "city"):
-			cm["city"] = i
-
-		// Certifications
-		case contains(h, "compute"):
-			cm["compute_cert"] = i
-		case contains(h, "networking", "network"):
-			cm["networking_cert"] = i
-		case contains(h, "hybrid cloud", "hc cert", "hybrid"):
-			cm["hybrid_cloud_cert"] = i
-		case contains(h, "storage"):
-			cm["storage_cert"] = i
-
-		// Revenue
-		case contains(h, "revenue", "ytd", "amount"):
-			cm["revenue_ytd"] = i
-
-		// Target
-		case contains(h, "target", "goal"):
-			cm["target"] = i
-
-		// Contact
-		case contains(h, "contact name", "contact person"):
-			cm["contact_name"] = i
-		case contains(h, "email", "e-mail"):
-			cm["contact_email"] = i
-		case contains(h, "phone", "tel"):
-			cm["contact_phone"] = i
-		}
+// GetCenterPrefixFromMembership maps a membership string to its center.
+func GetCenterPrefixFromMembership(membership string) string {
+	m := strings.ToLower(membership)
+	switch {
+	case strings.Contains(m, "compute"):
+		return "Compute"
+	case strings.Contains(m, "hybrid") || strings.Contains(m, "cloud"):
+		return "Hybrid Cloud"
+	case strings.Contains(m, "networking") || strings.Contains(m, "network"):
+		return "Networking"
+	default:
+		return ""
 	}
-
-	return cm
-}
-
-// mapRowToPartner maps a row of strings to a Partner using the column map.
-func mapRowToPartner(row []string, cm columnMap) domain.Partner {
-	get := func(key string) string {
-		idx, ok := cm[key]
-		if !ok || idx >= len(row) {
-			return ""
-		}
-		return strings.TrimSpace(row[idx])
-	}
-
-	getFloat := func(key string) float64 {
-		s := get(key)
-		if s == "" {
-			return 0
-		}
-		// Remove currency symbols, commas, spaces
-		s = strings.NewReplacer("$", "", ",", "", " ", "", "€", "").Replace(s)
-		v, _ := strconv.ParseFloat(s, 64)
-		return v
-	}
-
-	return domain.Partner{
-		Name:           get("name"),
-		PartnerID:      get("partner_id"),
-		Tier:           get("tier"),
-		Country:        get("country"),
-		City:           get("city"),
-		ComputeCert:    get("compute_cert"),
-		NetworkingCert: get("networking_cert"),
-		HybridCloud:    get("hybrid_cloud_cert"),
-		StorageCert:    get("storage_cert"),
-		RevenueYTD:     getFloat("revenue_ytd"),
-		Target:         getFloat("target"),
-		ContactName:    get("contact_name"),
-		ContactEmail:   get("contact_email"),
-		ContactPhone:   get("contact_phone"),
-	}
-}
-
-func contains(s string, patterns ...string) bool {
-	for _, p := range patterns {
-		if strings.Contains(s, p) {
-			return true
-		}
-	}
-	return false
 }

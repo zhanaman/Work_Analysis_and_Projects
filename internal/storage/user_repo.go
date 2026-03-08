@@ -30,11 +30,11 @@ func (r *UserRepo) GetOrCreate(ctx context.Context, telegramID int64, username, 
 	sql := `
 		INSERT INTO users (telegram_id, username, full_name, role)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, telegram_id, username, full_name, role, created_at
+		RETURNING id, telegram_id, username, full_name, role, COALESCE(region_filter, ''), created_at
 	`
 	u = &domain.User{}
 	err = r.db.Pool.QueryRow(ctx, sql, telegramID, username, fullName, domain.RolePending).
-		Scan(&u.ID, &u.TelegramID, &u.Username, &u.FullName, &u.Role, &u.CreatedAt)
+		Scan(&u.ID, &u.TelegramID, &u.Username, &u.FullName, &u.Role, &u.RegionFilter, &u.CreatedAt)
 	if err != nil {
 		return nil, false, fmt.Errorf("create user: %w", err)
 	}
@@ -45,13 +45,13 @@ func (r *UserRepo) GetOrCreate(ctx context.Context, telegramID int64, username, 
 // GetByTelegramID finds a user by their Telegram ID.
 func (r *UserRepo) GetByTelegramID(ctx context.Context, telegramID int64) (*domain.User, error) {
 	sql := `
-		SELECT id, telegram_id, username, full_name, role, created_at
+		SELECT id, telegram_id, username, full_name, role, COALESCE(region_filter, ''), created_at
 		FROM users
 		WHERE telegram_id = $1
 	`
 	u := &domain.User{}
 	err := r.db.Pool.QueryRow(ctx, sql, telegramID).
-		Scan(&u.ID, &u.TelegramID, &u.Username, &u.FullName, &u.Role, &u.CreatedAt)
+		Scan(&u.ID, &u.TelegramID, &u.Username, &u.FullName, &u.Role, &u.RegionFilter, &u.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get user by telegram_id %d: %w", telegramID, err)
 	}
@@ -74,7 +74,7 @@ func (r *UserRepo) SetRole(ctx context.Context, telegramID int64, role domain.Ro
 // ListPending returns all users awaiting admin approval.
 func (r *UserRepo) ListPending(ctx context.Context) ([]domain.User, error) {
 	sql := `
-		SELECT id, telegram_id, username, full_name, role, created_at
+		SELECT id, telegram_id, username, full_name, role, COALESCE(region_filter, ''), created_at
 		FROM users
 		WHERE role = $1
 		ORDER BY created_at ASC
@@ -88,7 +88,7 @@ func (r *UserRepo) ListPending(ctx context.Context) ([]domain.User, error) {
 	var users []domain.User
 	for rows.Next() {
 		var u domain.User
-		if err := rows.Scan(&u.ID, &u.TelegramID, &u.Username, &u.FullName, &u.Role, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.TelegramID, &u.Username, &u.FullName, &u.Role, &u.RegionFilter, &u.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		users = append(users, u)

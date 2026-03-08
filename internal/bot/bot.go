@@ -29,7 +29,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 			mw.Logging(),
 			mw.Auth(userRepo, cfg.AdminTelegramID),
 		),
-		bot.WithDefaultHandler(defaultHandler),
+		bot.WithDefaultHandler(makeDefaultHandler(searchHandler)),
 	}
 
 	// Initialize bot
@@ -49,6 +49,18 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "partner:", bot.MatchTypePrefix, partnerHandler.HandleCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "approve:", bot.MatchTypePrefix, adminHandler.HandleApproveCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "reject:", bot.MatchTypePrefix, adminHandler.HandleApproveCallback)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "stats:", bot.MatchTypePrefix, adminHandler.HandleStatsCallback)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "menu:", bot.MatchTypePrefix, handlers.HandleMenuCallback(searchHandler, adminHandler))
+
+	// Register bot commands for the "/" menu
+	b.SetMyCommands(ctx, &bot.SetMyCommandsParams{
+		Commands: []models.BotCommand{
+			{Command: "search", Description: "🔍 Поиск партнёра по имени"},
+			{Command: "stats", Description: "📊 Аналитика CCA"},
+			{Command: "users", Description: "👥 Управление пользователями"},
+			{Command: "help", Description: "❓ Список команд"},
+		},
+	})
 
 	slog.Info("bot started, listening for updates...")
 	b.Start(ctx)
@@ -56,22 +68,25 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	return nil
 }
 
-// defaultHandler handles any unmatched text input as a partner search.
-func defaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
-	if update.Message == nil || update.Message.Text == "" {
-		return
-	}
+// makeDefaultHandler creates a handler that forwards non-command text to search.
+func makeDefaultHandler(searchHandler *handlers.SearchHandler) bot.HandlerFunc {
+	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		if update.Message == nil || update.Message.Text == "" {
+			return
+		}
 
-	// Treat any non-command text as a partner search
-	text := update.Message.Text
-	if len(text) > 0 && text[0] != '/' {
-		// Rewrite as search command and re-dispatch
+		text := update.Message.Text
+		// Skip if it looks like a command
+		if len(text) > 0 && text[0] == '/' {
+			b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.Message.Chat.ID,
+				Text:   "❓ Неизвестная команда. Используйте /help для списка команд.",
+			})
+			return
+		}
+
+		// Forward to search handler — rewrite message as /search <text>
 		update.Message.Text = "/search " + text
-		// Find and call search handler (simplified — in production use proper routing)
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: update.Message.Chat.ID,
-			Text:   "🔍 Ищу: *" + text + "*...\n\nИспользуйте /search для поиска.",
-			ParseMode: models.ParseModeMarkdownV1,
-		})
+		searchHandler.Handle(ctx, b, update)
 	}
 }

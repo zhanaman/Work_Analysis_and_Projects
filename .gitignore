@@ -30,3 +30,4 @@ data/
 # Docker volumes
 pgdata/
 .agents/
+import
