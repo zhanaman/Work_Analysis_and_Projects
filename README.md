@@ -1,57 +1,74 @@
 # PBM Partner Analytics Bot 🤖
 
-Telegram бот для HPE PBM — мгновенный поиск и аналитика по партнёрам.
+Telegram бот для HPE Partner Business Managers (PBM). Позволяет мгновенно искать партнёров региона CCA, оценивать их готовность (readiness) к следующему тиру, анализировать Gaps (Volume, Certifications, SRI) и просматривать сводную статистику по всему региону.
 
-## Features
+## 🌟 Возможности
 
-- 🔍 **Fuzzy Search** — поиск партнёра по имени с нечётким совпадением
-- 📊 **Partner Card** — детальная карточка: tier, сертификации, revenue, gap analysis
-- 👥 **Multi-User** — система авторизации с ролями (admin / user / pending)
-- 📥 **Excel Import** — парсинг огромных Excel файлов (96MB+) через streaming
-- 🐳 **Docker Ready** — деплой через Docker Compose
+- 🔍 **Поиск** — мгновенный поиск партнёра по названию (Fuzzy Search).
+- 📊 **Модульная карточка партнёра** — вся информация выводится инлайн без лишних кнопок. Разделение по Centers of Expertise: `Compute`, `Hybrid Cloud`, `Networking`. Отображаются:
+  - Текущий Tier и цель (Target Tier).
+  - Gaps по Volume (Actuals vs Threshold).
+  - Gaps по сертификациям (ATP, ASE, MASE, Sales).
+  - Специфика Gold/Platinum: SRI Status.
+  - L&R Status.
+- 📈 **Аналитический Дашборд (`/stats`)** — агрегация данных:
+  - Графики (Doughnut charts) через интеграцию с QuickChart.io.
+  - Матрицы партнёров по странам и тирам (Business, Silver, Gold, Platinum).
+  - Агрегированные метрики Gaps (чего не хватает рынку для апгрейда).
+- 🔐 **Авторизация и Роли** — доступ к боту только по разрешению администратора (Pending → User/PBM).
+- 📥 **Импорт данных напрямую в БД** — парсер Excel-файлов (96MB+) с автоэкстракцией даты актуальности (`data_date`), работает инкапсулированно внутри Docker.
 
-## Quick Start
+## 🚀 Быстрый старт (Разработка)
 
+1. **Скопируйте конфиг:**
+   ```bash
+   cp .env.example .env
+   # Укажите свой TELEGRAM_BOT_TOKEN
+   ```
+2. **Запустите через Docker Compose:**
+   ```bash
+   make docker-up
+   ```
+   *Запускает PostgreSQL (порт 5433) с автомиграциями и сам бот.*
+
+3. **Локальный импорт Excel (для тестов):**
+   ```bash
+   make import-local FILE=/path/to/HPE_Source_2026-02-23.xlsx
+   ```
+
+## 🌐 Продакшен и Деплой
+
+Бот развернут на VPS (`31.44.6.132`). Все действия по деплою и загрузке данных выполняются одной командой через `Makefile` с вашего Mac (нужен SSH-ключ `~/.ssh/id_vps_ynab`).
+
+**Загрузка свежего Excel (Импорт данных):**
+Файл безопасно копируется на сервер по SCP, обрабатывается внутри Docker-контейнера `importer` и сразу удаляется с диска сервера. Дата извлекается из названия файла.
 ```bash
-# 1. Copy env and configure
-cp .env.example .env
-# Edit .env with your Telegram token and admin ID
-
-# 2. Start with Docker
-make docker-up
-
-# 3. Talk to your bot in Telegram!
+make upload FILE=~/Downloads/HPE_Source_2026-03-08.xlsx
 ```
 
-## Development
-
+**Деплой обновлений кода:**
+Запушит ваши локальные коммиты в Git, зайдёт на VPS, стянет изменения и перезапустит Docker:
 ```bash
-# Install Go dependencies
-go mod tidy
-
-# Run locally (requires PostgreSQL)
-make run
-
-# Run tests
-make test
+make deploy
 ```
 
-## Tech Stack
+## 🛠 Технологический стек
 
-| Component  | Technology           |
-|-----------|----------------------|
-| Language  | Go 1.22+             |
-| Telegram  | go-telegram/bot      |
-| Excel     | excelize (streaming)  |
-| Database  | PostgreSQL 16 + pgx  |
-| Deploy    | Docker Compose       |
+| Компонент    | Выбор / Технология            |
+|--------------|-------------------------------|
+| Язык         | Go 1.22+                      |
+| Telegram API | `go-telegram/bot` (v1)        |
+| Парсинг Excel| `excelize` (StreamRowReader)  |
+| База Данных  | PostgreSQL 16 + `pgx/v5`      |
+| Архитектура  | Domain-Driven Design (DDD)    |
+| Контейнеры   | Docker + Docker Compose, Alpine|
 
-## Commands
+## 🤖 Команды бота
 
-| Command          | Description                    |
-|-----------------|--------------------------------|
-| `/start`        | Приветствие + регистрация      |
-| `/search <имя>` | Поиск партнёра                 |
-| `/stats`        | Статистика базы                |
-| `/help`         | Справка                        |
-| `/users`        | Список ожидающих (admin only)  |
+| Команда         | Описание                                  |
+|-----------------|-------------------------------------------|
+| `/start`        | Приветствие и запрос доступа              |
+| `/search <имя>` | Найти партнёра по имени или Party ID      |
+| `/stats`        | Полный аналитический дашборд CCA          |
+| `/users`        | Управление пользователями (только Admin)  |
+| `/help`         | Справка                                   |
