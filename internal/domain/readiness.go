@@ -55,12 +55,11 @@ type CertGap struct {
 	MASEMet  bool `json:"mase_met"`
 }
 
-// CalculateReadiness computes readiness for the next tier in a given center.
+// CalculateReadiness computes readiness for the target tier in a given center.
 // tiers should contain all tier rows for one partner in one center.
-func CalculateReadiness(membership string, tiers []PartnerTier, center Center) *TierReadiness {
-	currentTier := parseMembershipTier(membership)
-	next := NextTier(currentTier)
-	if next == "" {
+func CalculateReadiness(membership string, targetTier Tier, tiers []PartnerTier, center Center) *TierReadiness {
+	currentTier := ParseMembershipTier(membership)
+	if targetTier == "" {
 		// Already at max tier
 		return &TierReadiness{
 			Center:      center,
@@ -70,36 +69,36 @@ func CalculateReadiness(membership string, tiers []PartnerTier, center Center) *
 		}
 	}
 
-	// Find the next tier data
-	var nextTierData *PartnerTier
+	// Find the target tier data
+	var targetTierData *PartnerTier
 	for i := range tiers {
-		if tiers[i].Tier == next {
-			nextTierData = &tiers[i]
+		if tiers[i].Tier == targetTier {
+			targetTierData = &tiers[i]
 			break
 		}
 	}
 
-	if nextTierData == nil {
+	if targetTierData == nil {
 		return &TierReadiness{
 			Center:      center,
 			CurrentTier: currentTier,
-			NextTier:    next,
-			Blockers:    []string{"No tier data available for " + string(next)},
+			NextTier:    targetTier,
+			Blockers:    []string{"No tier data available for " + string(targetTier)},
 		}
 	}
 
 	r := &TierReadiness{
 		Center:      center,
 		CurrentTier: currentTier,
-		NextTier:    next,
+		NextTier:    targetTier,
 	}
 
 	// Volume gap
 	r.Volume = GapStatus{
-		Actuals:  nextTierData.VolumeActuals,
-		Required: nextTierData.Threshold,
-		Pct:      nextTierData.VolumePct,
-		Met:      nextTierData.VolumeStatus,
+		Actuals:  targetTierData.VolumeActuals,
+		Required: targetTierData.Threshold,
+		Pct:      targetTierData.VolumePct,
+		Met:      targetTierData.VolumeStatus,
 	}
 	if !r.Volume.Met && r.Volume.Required > 0 {
 		r.Volume.Gap = r.Volume.Required - r.Volume.Actuals
@@ -114,12 +113,12 @@ func CalculateReadiness(membership string, tiers []PartnerTier, center Center) *
 	}
 
 	// SRI gap (Gold/Platinum only)
-	if next == TierGold || next == TierPlatinum {
+	if targetTier == TierGold || targetTier == TierPlatinum {
 		r.SRI = GapStatus{
-			Actuals:  nextTierData.SRI,
-			Required: nextTierData.SRIRequired,
-			Pct:      nextTierData.SRIPct,
-			Met:      nextTierData.SRIStatus,
+			Actuals:  targetTierData.SRI,
+			Required: targetTierData.SRIRequired,
+			Pct:      targetTierData.SRIPct,
+			Met:      targetTierData.SRIStatus,
 		}
 		if !r.SRI.Met && r.SRI.Required > 0 && r.SRI.Required < SRISentinel {
 			r.SRI.Gap = r.SRI.Required - r.SRI.Actuals
@@ -134,10 +133,10 @@ func CalculateReadiness(membership string, tiers []PartnerTier, center Center) *
 	}
 
 	// Cert gap
-	salesH, salesN := parseCertFraction(nextTierData.SalesCertified)
-	atpH, atpN := parseCertFraction(nextTierData.ATPCurrent)
-	aseH, aseN := parseCertFraction(nextTierData.ASECurrent)
-	maseH, maseN := parseCertFraction(nextTierData.MASECurrent)
+	salesH, salesN := parseCertFraction(targetTierData.SalesCertified)
+	atpH, atpN := parseCertFraction(targetTierData.ATPCurrent)
+	aseH, aseN := parseCertFraction(targetTierData.ASECurrent)
+	maseH, maseN := parseCertFraction(targetTierData.MASECurrent)
 
 	r.Certs = CertGap{
 		SalesHave: salesH, SalesNeed: salesN, SalesMet: salesH >= salesN,
@@ -146,7 +145,7 @@ func CalculateReadiness(membership string, tiers []PartnerTier, center Center) *
 		MASEHave: maseH, MASENeed: maseN, MASEMet: maseH >= maseN,
 	}
 
-	if !nextTierData.CertStatus {
+	if !targetTierData.CertStatus {
 		var certBlockers []string
 		if !r.Certs.SalesMet && salesN > 0 {
 			certBlockers = append(certBlockers, fmt.Sprintf("Sales: %d/%d", salesH, salesN))
@@ -168,21 +167,21 @@ func CalculateReadiness(membership string, tiers []PartnerTier, center Center) *
 	}
 
 	// Growth plan
-	r.GrowthPlan = nextTierData.GrowthPlanStatus
+	r.GrowthPlan = targetTierData.GrowthPlanStatus
 	if !r.GrowthPlan {
 		r.Blockers = append(r.Blockers, "Growth Plan not active")
 		r.Recommendations = append(r.Recommendations,
-			"Submit and activate Growth Plan for "+string(next)+" tier")
+			"Submit and activate Growth Plan for "+string(targetTier)+" tier")
 	}
 
 	// Overall readiness
-	r.IsReady = nextTierData.CriteriaMet
+	r.IsReady = targetTierData.CriteriaMet
 
 	return r
 }
 
-// parseMembershipTier extracts tier from membership string like "Silver Partner" or "Compute Gold".
-func parseMembershipTier(membership string) Tier {
+// ParseMembershipTier extracts tier from membership string like "Silver Partner" or "Compute Gold".
+func ParseMembershipTier(membership string) Tier {
 	m := strings.ToLower(membership)
 	switch {
 	case strings.Contains(m, "platinum"):

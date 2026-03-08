@@ -71,11 +71,14 @@ func (h *AdminHandler) HandleStats(ctx context.Context, b *bot.Bot, update *mode
 			{Text: "💰 Top Volume", CallbackData: "stats:volume"},
 		},
 		{
-			{Text: "📊 Chart: Тиры", CallbackData: "chart:tiers"},
-			{Text: "📊 Chart: Страны", CallbackData: "chart:countries"},
+			{Text: "📈 Upgrade Pipeline", CallbackData: "chart:pipeline"},
 		},
 		{
-			{Text: "📊 Chart: Volume", CallbackData: "chart:volume"},
+			{Text: "🎯 Low-Hanging Fruit", CallbackData: "chart:fruit"},
+		},
+		{
+			{Text: "⚠️ Retention Risk", CallbackData: "chart:risk"},
+			{Text: "🧩 Concentration", CallbackData: "chart:concentration"},
 		},
 	}
 
@@ -135,11 +138,16 @@ func (h *AdminHandler) HandleStatsCallback(ctx context.Context, b *bot.Bot, upda
 			{Text: "💰 Top Volume", CallbackData: "stats:volume"},
 		},
 		{
-			{Text: "📊 Chart: Тиры", CallbackData: "chart:tiers"},
-			{Text: "📊 Chart: Страны", CallbackData: "chart:countries"},
+			{Text: "📈 Upgrade Pipeline", CallbackData: "chart:pipeline"},
 		},
 		{
-			{Text: "📊 Chart: Volume", CallbackData: "chart:volume"},
+			{Text: "🎯 Low-Hanging Fruit", CallbackData: "chart:fruit"},
+		},
+		{
+			{Text: "⚠️ Retention Risk", CallbackData: "chart:risk"},
+			{Text: "🧩 Concentration", CallbackData: "chart:concentration"},
+		},
+		{
 			{Text: "🔍 Поиск", CallbackData: "menu:search"},
 		},
 	}
@@ -476,12 +484,14 @@ func (h *AdminHandler) HandleChartCallback(ctx context.Context, b *bot.Bot, upda
 	var caption string
 
 	switch section {
-	case "tiers":
-		chartURL, caption = h.chartTiers(ctx)
-	case "countries":
-		chartURL, caption = h.chartCountries(ctx)
-	case "volume":
-		chartURL, caption = h.chartVolume(ctx)
+	case "pipeline":
+		chartURL, caption = h.chartPipeline(ctx)
+	case "fruit":
+		chartURL, caption = h.chartFruit(ctx)
+	case "risk":
+		chartURL, caption = h.chartRisk(ctx)
+	case "concentration":
+		chartURL, caption = h.chartConcentration(ctx)
 	default:
 		return
 	}
@@ -496,9 +506,12 @@ func (h *AdminHandler) HandleChartCallback(ctx context.Context, b *bot.Bot, upda
 
 	navButtons := [][]models.InlineKeyboardButton{
 		{
-			{Text: "📊 Тиры", CallbackData: "chart:tiers"},
-			{Text: "📊 Страны", CallbackData: "chart:countries"},
-			{Text: "📊 Volume", CallbackData: "chart:volume"},
+			{Text: "📈 Pipeline", CallbackData: "chart:pipeline"},
+			{Text: "🎯 Fruit", CallbackData: "chart:fruit"},
+		},
+		{
+			{Text: "⚠️ Risk", CallbackData: "chart:risk"},
+			{Text: "🧩 Concentration", CallbackData: "chart:concentration"},
 		},
 		{
 			{Text: "📋 Dashboard", CallbackData: "menu:stats"},
@@ -517,71 +530,88 @@ func (h *AdminHandler) HandleChartCallback(ctx context.Context, b *bot.Bot, upda
 	})
 }
 
-func (h *AdminHandler) chartTiers(ctx context.Context) (string, string) {
-	dist, err := h.partnerRepo.TierDistribution(ctx, "")
-	if err != nil || len(dist) == 0 {
+func (h *AdminHandler) chartPipeline(ctx context.Context) (string, string) {
+	rows, err := h.partnerRepo.UpgradePipeline(ctx)
+	if err != nil || len(rows) == 0 {
 		return "", ""
 	}
 
-	// Use compute center as primary
-	computeDist := dist["compute"]
-	if len(computeDist) == 0 {
-		return "", ""
+	var centers []string
+	var ready, cert, vol, deep []int
+
+	for _, r := range rows {
+		centers = append(centers, r.Center)
+		ready = append(ready, r.Ready)
+		cert = append(cert, r.CertBlocked)
+		vol = append(vol, r.VolBlocked)
+		deep = append(deep, r.DeepGap)
 	}
 
-	url := chart.TierDoughnutURL(computeDist, "Compute")
-
-	total := computeDist["platinum"] + computeDist["gold"] + computeDist["silver"] + computeDist["business"]
-	caption := fmt.Sprintf("📊 <b>Compute Tier Distribution</b>\n"+
-		"💎 %d  •  🥇 %d  •  🥈 %d  •  🏷 %d  •  Total: %d",
-		computeDist["platinum"], computeDist["gold"], computeDist["silver"], computeDist["business"], total)
+	url := chart.UpgradePipelineChart(centers, ready, cert, vol, deep)
+	caption := "📈 <b>Upgrade Pipeline (Blockers)</b>\n" +
+		"Shows why partners are not moving to the next tier."
 
 	return url, caption
 }
 
-func (h *AdminHandler) chartCountries(ctx context.Context) (string, string) {
-	matrix, err := h.partnerRepo.CountryTierMatrix(ctx)
-	if err != nil || len(matrix) == 0 {
-		return "", ""
-	}
-
-	var countries []string
-	var plat, gold, silver, biz []int
-
-	for _, r := range matrix {
-		countries = append(countries, r.Country)
-		plat = append(plat, r.Plat)
-		gold = append(gold, r.Gold)
-		silver = append(silver, r.Silver)
-		biz = append(biz, r.Biz)
-	}
-
-	url := chart.CountryStackedBarURL(countries, plat, gold, silver, biz)
-	caption := fmt.Sprintf("📊 <b>Partners by Country</b> (%d countries)", len(countries))
-
-	return url, caption
-}
-
-func (h *AdminHandler) chartVolume(ctx context.Context) (string, string) {
-	top, err := h.partnerRepo.TopVolumePartners(ctx, 7)
-	if err != nil || len(top) == 0 {
+func (h *AdminHandler) chartFruit(ctx context.Context) (string, string) {
+	rows, err := h.partnerRepo.LowHangingFruit(ctx, 8)
+	if err != nil || len(rows) == 0 {
 		return "", ""
 	}
 
 	var names []string
-	var volumes []float64
+	var volumes, gaps []float64
 
-	for _, t := range top {
-		name := t.Name
-		if len(name) > 20 {
-			name = name[:17] + "..."
+	for _, r := range rows {
+		name := r.PartnerName
+		if len(name) > 17 {
+			name = name[:15] + ".."
 		}
-		names = append(names, name)
-		volumes = append(volumes, t.Volume)
+		names = append(names, fmt.Sprintf("%s (%s)", name, strings.Title(r.Tier)))
+		volumes = append(volumes, r.Volume)
+		gaps = append(gaps, r.Gap)
 	}
 
-	url := chart.VolumeTopBarURL(names, volumes)
-	caption := "📊 <b>Top Partners by Volume</b> (Compute)"
+	url := chart.LowHangingFruitChart(names, volumes, gaps)
+	caption := "🎯 <b>Low-Hanging Fruit</b>\n" +
+		"Partners at 80%-99% of next tier volume. Quick wins!"
+
+	return url, caption
+}
+
+func (h *AdminHandler) chartRisk(ctx context.Context) (string, string) {
+	safe, volRisk, certRisk, deepRisk, err := h.partnerRepo.RetentionRisk(ctx)
+	if err != nil {
+		return "", ""
+	}
+
+	url := chart.RetentionRiskChart(safe, volRisk, certRisk, deepRisk)
+	
+	total := safe + volRisk + certRisk + deepRisk
+	caption := fmt.Sprintf("⚠️ <b>FY27 Retention Risk</b>\n"+
+		"Total %d Platinum/Gold partners evaluated against their current tier requirements.", total)
+
+	return url, caption
+}
+
+func (h *AdminHandler) chartConcentration(ctx context.Context) (string, string) {
+	// Standardize on Compute for this general dashboard
+	top3, next7, rest, err := h.partnerRepo.VolumeConcentration(ctx, "compute")
+	if err != nil || (top3+next7+rest) == 0 {
+		return "", ""
+	}
+
+	url := chart.ConcentrationChart(top3, next7, rest, "Compute")
+	
+	total := top3 + next7 + rest
+	top3Pct := 0.0
+	if total > 0 {
+		top3Pct = (top3 / total) * 100
+	}
+	
+	caption := fmt.Sprintf("🧩 <b>Compute Revenue Concentration</b>\n"+
+		"Top 3 partners control %.1f%% of total volume.", top3Pct)
 
 	return url, caption
 }

@@ -5,83 +5,76 @@ import (
 	"testing"
 )
 
-func TestTierDoughnutURL(t *testing.T) {
-	dist := map[string]int{
-		"platinum": 12,
-		"gold":     28,
-		"silver":   45,
-		"business": 57,
+func TestUpgradePipelineChart(t *testing.T) {
+	centers := []string{"Compute", "Networking"}
+	ready := []int{5, 2}
+	cert := []int{10, 8}
+	vol := []int{3, 1}
+	deep := []int{2, 0}
+
+	url := UpgradePipelineChart(centers, ready, cert, vol, deep)
+
+	if !strings.HasPrefix(url, quickChartBaseURL) {
+		t.Errorf("Expected URL to start with %s, got %s", quickChartBaseURL, url)
 	}
 
-	url := TierDoughnutURL(dist, "Compute")
-
-	if !strings.HasPrefix(url, "https://quickchart.io/chart?") {
-		t.Errorf("URL should start with quickchart.io, got: %s", url[:50])
+	if !strings.Contains(url, "Compute") || !strings.Contains(url, "Networking") {
+		t.Errorf("Expected URL to contain center labels, got %s", url)
 	}
-	if !strings.Contains(url, "doughnut") {
-		t.Error("URL should contain 'doughnut' chart type")
-	}
-	if !strings.Contains(url, "Compute") {
-		t.Error("URL should contain center name 'Compute'")
+	
+	if !strings.Contains(url, "10") || !strings.Contains(url, "8") {
+		t.Errorf("Expected URL to contain data points, got %s", url)
 	}
 }
 
-func TestCountryStackedBarURL(t *testing.T) {
-	countries := []string{"Kazakhstan", "Uzbekistan", "Azerbaijan"}
-	plat := []int{5, 2, 3}
-	gold := []int{10, 5, 8}
-	silver := []int{15, 10, 12}
-	biz := []int{20, 15, 10}
-
-	url := CountryStackedBarURL(countries, plat, gold, silver, biz)
-
-	if !strings.HasPrefix(url, "https://quickchart.io/chart?") {
-		t.Errorf("URL should start with quickchart.io, got: %s", url[:50])
-	}
-	if !strings.Contains(url, "bar") {
-		t.Error("URL should contain 'bar' chart type")
-	}
-	if !strings.Contains(url, "Kazakhstan") {
-		t.Error("URL should contain country name")
-	}
-}
-
-func TestVolumeTopBarURL(t *testing.T) {
+func TestLowHangingFruitChart(t *testing.T) {
 	names := []string{"Partner A", "Partner B"}
-	volumes := []float64{1500000, 800000}
+	volumes := []float64{950000, 480000}
+	gaps := []float64{50000, 20000}
 
-	url := VolumeTopBarURL(names, volumes)
+	url := LowHangingFruitChart(names, volumes, gaps)
 
-	if !strings.HasPrefix(url, "https://quickchart.io/chart?") {
-		t.Errorf("URL should start with quickchart.io, got: %s", url[:50])
+	if !strings.HasPrefix(url, quickChartBaseURL) {
+		t.Errorf("Expected URL to start with %s, got %s", quickChartBaseURL, url)
 	}
-	if !strings.Contains(url, "bar") {
-		t.Error("URL should contain 'bar' chart type")
-	}
-}
 
-func TestToJSArray(t *testing.T) {
-	got := toJSArray([]string{"a", "b", "c"})
-	want := "['a','b','c']"
-	if got != want {
-		t.Errorf("toJSArray = %q, want %q", got, want)
+	if !strings.Contains(url, "Partner+A") || !strings.Contains(url, "Partner+B") {
+		t.Errorf("Expected URL to contain partner names, got %s", url)
+	}
+	
+	if !strings.Contains(url, "950000") || !strings.Contains(url, "50000") {
+		t.Errorf("Expected URL to contain volume/gap data, got %s", url)
 	}
 }
 
-func TestToIntArray(t *testing.T) {
-	got := toIntArray([]int{1, 2, 3})
-	want := "[1,2,3]"
-	if got != want {
-		t.Errorf("toIntArray = %q, want %q", got, want)
+func TestRetentionRiskChart(t *testing.T) {
+	url := RetentionRiskChart(20, 5, 10, 2)
+
+	if !strings.HasPrefix(url, quickChartBaseURL) {
+		t.Errorf("Expected URL to start with %s, got %s", quickChartBaseURL, url)
+	}
+
+	if !strings.Contains(url, "20") || !strings.Contains(url, "10") {
+		t.Errorf("Expected URL to contain risk data, got %s", url)
+	}
+
+	if !strings.Contains(url, "Retention+Risk") {
+		t.Errorf("Expected URL to contain title, got %s", url)
 	}
 }
 
-func TestEmptyDistribution(t *testing.T) {
-	dist := map[string]int{}
-	url := TierDoughnutURL(dist, "Compute")
+func TestConcentrationChart(t *testing.T) {
+	url := ConcentrationChart(1000000, 2500000, 5000000, "Storage")
 
-	// Should still produce a valid URL even with empty data
-	if !strings.HasPrefix(url, "https://quickchart.io/chart?") {
-		t.Errorf("Empty dist should still produce valid URL, got: %s", url[:50])
+	if !strings.HasPrefix(url, quickChartBaseURL) {
+		t.Errorf("Expected URL to start with %s, got %s", quickChartBaseURL, url)
+	}
+
+	if !strings.Contains(url, "Storage") {
+		t.Errorf("Expected URL to contain center name, got %s", url)
+	}
+
+	if !strings.Contains(url, "1000000.000000") && !strings.Contains(url, "1000000") {
+		t.Errorf("Expected URL to contain volume data, got %s", url)
 	}
 }

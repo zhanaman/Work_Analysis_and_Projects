@@ -599,6 +599,123 @@ func (r *PartnerRepo) GapSummaryAll(ctx context.Context) ([]GapSummary, error) {
 	return result, nil
 }
 
+// PipelineRow represents the number of partners blocked from upgrading.
+type PipelineRow struct {
+	Center      string
+	Ready       int
+	CertBlocked int
+	VolBlocked  int
+	DeepGap     int
+}
+
+// UpgradePipeline breaks down why partners are not upgrading.
+func (r *PartnerRepo) UpgradePipeline(ctx context.Context) ([]PipelineRow, error) {
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT pt.center,
+			COUNT(*) FILTER (WHERE pt.criteria_met = true) as ready,
+			COUNT(*) FILTER (WHERE pt.criteria_met = false AND pt.volume_status = true AND pt.cert_status = false) as cert_blocked,
+			COUNT(*) FILTER (WHERE pt.criteria_met = false AND pt.volume_status = false AND pt.cert_status = true) as vol_blocked,
+			COUNT(*) FILTER (WHERE pt.criteria_met = false AND pt.volume_status = false AND pt.cert_status = false) as deep_gap
+		FROM partner_tiers pt
+		WHERE pt.tier != 'business'
+		GROUP BY pt.center
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []PipelineRow
+	for rows.Next() {
+		var p PipelineRow
+		if err := rows.Scan(&p.Center, &p.Ready, &p.CertBlocked, &p.VolBlocked, &p.DeepGap); err != nil {
+			return nil, err
+		}
+		result = append(result, p)
+	}
+	return result, nil
+}
+
+// FruitRow represents a partner close to the next tier's volume threshold.
+type FruitRow struct {
+	PartnerName string
+	Center      string
+	Tier        string
+	Volume      float64
+	Threshold   float64
+	Gap         float64
+	Pct         float64
+}
+
+// LowHangingFruit returns partners with volume >= 80% to next tier.
+func (r *PartnerRepo) LowHangingFruit(ctx context.Context, limit int) ([]FruitRow, error) {
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT p.name, pt.center, pt.tier, pt.volume_actuals, pt.threshold, 
+		       (pt.threshold - pt.volume_actuals) as gap, pt.volume_pct
+		FROM partner_tiers pt
+		JOIN partners p ON p.id = pt.partner_id
+		WHERE pt.criteria_met = false 
+		  AND pt.threshold > 0 AND pt.threshold < 9999999 
+		  AND pt.volume_pct >= 80 
+		  AND pt.volume_pct < 100
+		ORDER BY gap ASC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []FruitRow
+	for rows.Next() {
+		var f FruitRow
+		if err := rows.Scan(&f.PartnerName, &f.Center, &f.Tier, &f.Volume, &f.Threshold, &f.Gap, &f.Pct); err != nil {
+			return nil, err
+		}
+		result = append(result, f)
+	}
+	return result, nil
+}
+
+// RetentionRisk returns the risk profile for CURRENT Platinum/Gold partners across all centers.
+func (r *PartnerRepo) RetentionRisk(ctx context.Context) (safe, volRisk, certRisk, deepRisk int, err error) {
+	err = r.db.Pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(COUNT(*) FILTER (WHERE pt.criteria_met = true), 0) as safe,
+			COALESCE(COUNT(*) FILTER (WHERE pt.criteria_met = false AND pt.volume_status = false AND pt.cert_status = true), 0) as vol_risk,
+			COALESCE(COUNT(*) FILTER (WHERE pt.criteria_met = false AND pt.cert_status = false AND pt.volume_status = true), 0) as cert_risk,
+			COALESCE(COUNT(*) FILTER (WHERE pt.criteria_met = false AND pt.volume_status = false AND pt.cert_status = false), 0) as deep_risk
+		FROM partner_tiers pt
+		JOIN partners p ON p.id = pt.partner_id
+		WHERE (
+			(p.membership_compute ILIKE '%'||pt.tier||'%' AND pt.center = 'compute') OR
+			(p.membership_hc ILIKE '%'||pt.tier||'%' AND pt.center = 'hybrid_cloud') OR
+			(p.membership_networking ILIKE '%'||pt.tier||'%' AND pt.center = 'networking')
+		)
+		AND pt.tier IN ('platinum', 'gold')
+	`).Scan(&safe, &volRisk, &certRisk, &deepRisk)
+	return
+}
+
+// VolumeConcentration analyzes diversification: Top 3 vs Next 7 vs Rest for a given center.
+func (r *PartnerRepo) VolumeConcentration(ctx context.Context, center string) (top3, next7, rest float64, err error) {
+	err = r.db.Pool.QueryRow(ctx, `
+		WITH ranked AS (
+			SELECT p.id, MAX(pt.volume_actuals) as volume,
+				ROW_NUMBER() OVER(ORDER BY MAX(pt.volume_actuals) DESC) as rn
+			FROM partner_tiers pt
+			JOIN partners p ON p.id = pt.partner_id
+			WHERE pt.center = $1 AND pt.volume_actuals > 0
+			GROUP BY p.id
+		)
+		SELECT 
+			COALESCE(SUM(volume) FILTER (WHERE rn <= 3), 0),
+			COALESCE(SUM(volume) FILTER (WHERE rn > 3 AND rn <= 10), 0),
+			COALESCE(SUM(volume) FILTER (WHERE rn > 10), 0)
+		FROM ranked
+	`, center).Scan(&top3, &next7, &rest)
+	return
+}
 
 // unused but satisfies interface
 var _ = pgx.Rows(nil)

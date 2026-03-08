@@ -22,7 +22,7 @@ func NewPartnerHandler(repo *storage.PartnerRepo) *PartnerHandler {
 	return &PartnerHandler{partnerRepo: repo}
 }
 
-// HandleCallback processes callback queries like "partner:123".
+// HandleCallback processes callback queries like "partner:123" or "partner:123:upgrade".
 func (h *PartnerHandler) HandleCallback(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if update.CallbackQuery == nil {
 		return
@@ -33,10 +33,20 @@ func (h *PartnerHandler) HandleCallback(ctx context.Context, b *bot.Bot, update 
 		return
 	}
 
-	idStr := strings.TrimPrefix(data, "partner:")
+	parts := strings.Split(data, ":")
+	if len(parts) < 2 {
+		return
+	}
+
+	idStr := parts[1]
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		return
+	}
+
+	viewMode := "retention"
+	if len(parts) > 2 {
+		viewMode = parts[2]
 	}
 
 	partner, err := h.partnerRepo.GetByID(ctx, id)
@@ -53,7 +63,7 @@ func (h *PartnerHandler) HandleCallback(ctx context.Context, b *bot.Bot, update 
 		CallbackQueryID: update.CallbackQuery.ID,
 	})
 
-	card := formatPartnerCard(partner)
+	card := formatPartnerCard(partner, viewMode)
 
 	var chatID int64
 	var msgID int
@@ -65,11 +75,21 @@ func (h *PartnerHandler) HandleCallback(ctx context.Context, b *bot.Bot, update 
 		return
 	}
 
-	buttons := [][]models.InlineKeyboardButton{
-		{
-			{Text: "🔍 Новый поиск", CallbackData: "menu:search"},
-		},
+	buttons := [][]models.InlineKeyboardButton{}
+
+	if viewMode == "retention" {
+		buttons = append(buttons, []models.InlineKeyboardButton{
+			{Text: "📈 Как повысить статус?", CallbackData: fmt.Sprintf("partner:%d:upgrade", id)},
+		})
+	} else {
+		buttons = append(buttons, []models.InlineKeyboardButton{
+			{Text: "📉 Условия удержания", CallbackData: fmt.Sprintf("partner:%d:retention", id)},
+		})
 	}
+
+	buttons = append(buttons, []models.InlineKeyboardButton{
+		{Text: "🔍 Новый поиск", CallbackData: "menu:search"},
+	})
 
 	b.EditMessageText(ctx, &bot.EditMessageTextParams{
 		ChatID:    chatID,
@@ -83,7 +103,7 @@ func (h *PartnerHandler) HandleCallback(ctx context.Context, b *bot.Bot, update 
 }
 
 // formatPartnerCard builds a complete partner card with inline details.
-func formatPartnerCard(p *domain.Partner) string {
+func formatPartnerCard(p *domain.Partner, viewMode string) string {
 	var sb strings.Builder
 
 	// Header
@@ -126,23 +146,40 @@ func formatPartnerCard(p *domain.Partner) string {
 			}
 		}
 
-		readiness := domain.CalculateReadiness(ci.membership, centerTiers, ci.center)
+		currentTier := domain.ParseMembershipTier(ci.membership)
+		var targetTier domain.Tier
+		if viewMode == "upgrade" {
+			targetTier = domain.NextTier(currentTier)
+		} else {
+			targetTier = currentTier
+		}
 
-		if readiness == nil || readiness.NextTier == "" {
+		readiness := domain.CalculateReadiness(ci.membership, targetTier, centerTiers, ci.center)
+
+		if targetTier == "" {
 			// Max tier
 			sb.WriteString(fmt.Sprintf("<b>%s</b>  %s ✅\n\n", ci.name, tierBadge(ci.membership)))
 		} else if readiness.IsReady {
-			// Ready for upgrade
-			sb.WriteString(fmt.Sprintf("<b>%s</b>  %s → %s ✅\n\n",
-				ci.name, tierBadge(ci.membership), tierBadge(string(readiness.NextTier))))
+			if viewMode == "upgrade" {
+				sb.WriteString(fmt.Sprintf("<b>%s</b>  %s → %s ✅\n\n",
+					ci.name, tierBadge(ci.membership), tierBadge(string(readiness.NextTier))))
+			} else {
+				sb.WriteString(fmt.Sprintf("<b>%s</b>  %s (Retention) ✅\n\n",
+					ci.name, tierBadge(ci.membership)))
+			}
 		} else {
 			// Has gaps — show ONLY what's failing
 			allReady = false
 			gapCount := len(readiness.Blockers)
 			totalGaps += gapCount
 
-			sb.WriteString(fmt.Sprintf("<b>%s</b>  %s → %s\n",
-				ci.name, tierBadge(ci.membership), tierBadge(string(readiness.NextTier))))
+			if viewMode == "upgrade" {
+				sb.WriteString(fmt.Sprintf("<b>%s</b>  %s → %s\n",
+					ci.name, tierBadge(ci.membership), tierBadge(string(readiness.NextTier))))
+			} else {
+				sb.WriteString(fmt.Sprintf("<b>%s</b>  %s (Retention)\n",
+					ci.name, tierBadge(ci.membership)))
+			}
 			sb.WriteString(fmt.Sprintf("%d gaps:\n", gapCount))
 
 			// Volume — only if FAILED
@@ -170,10 +207,18 @@ func formatPartnerCard(p *domain.Partner) string {
 
 	// FY27 Readiness + L&R
 	sb.WriteString("\n")
-	if allReady {
-		sb.WriteString("🟢 <b>FY27 Ready</b>\n")
+	if viewMode == "retention" {
+		if allReady {
+			sb.WriteString("🟢 <b>FY27 Ready</b>\n")
+		} else {
+			sb.WriteString("🔴 <b>FY27 Not Ready</b>\n")
+		}
 	} else {
-		sb.WriteString("🔴 <b>FY27 Not Ready</b>\n")
+		if allReady {
+			sb.WriteString("🟢 <b>Ready to Upgrade</b>\n")
+		} else {
+			sb.WriteString("🟡 <b>Blocked from Upgrade</b>\n")
+		}
 	}
 
 	if p.LRStatus != "" {
@@ -182,6 +227,16 @@ func formatPartnerCard(p *domain.Partner) string {
 		} else {
 			sb.WriteString("📋 L&R ❌\n")
 		}
+	}
+
+	refreshDate := ""
+	if len(p.Revenue) > 0 {
+		refreshDate = p.Revenue[0].RefreshDate
+	}
+	if refreshDate != "" {
+		sb.WriteString(fmt.Sprintf("\n📅 Данные от: %s\n", refreshDate))
+	} else if !p.ImportedAt.IsZero() {
+		sb.WriteString(fmt.Sprintf("\n📅 Импорт: %s\n", p.ImportedAt.Format("2006-01-02")))
 	}
 
 	return sb.String()

@@ -80,7 +80,7 @@ func TestNextTier(t *testing.T) {
 }
 
 func TestCalculateReadiness_MaxTier(t *testing.T) {
-	r := CalculateReadiness("Compute Platinum Partner", nil, CenterCompute)
+	r := CalculateReadiness("Compute Platinum Partner", "", nil, CenterCompute)
 	if r == nil {
 		t.Fatal("expected non-nil readiness")
 	}
@@ -117,7 +117,7 @@ func TestCalculateReadiness_SilverToGold(t *testing.T) {
 		},
 	}
 
-	r := CalculateReadiness("Compute Silver Partner", tiers, CenterCompute)
+	r := CalculateReadiness("Compute Silver Partner", TierGold, tiers, CenterCompute)
 	if r == nil {
 		t.Fatal("expected non-nil readiness")
 	}
@@ -179,7 +179,7 @@ func TestCalculateReadiness_Ready(t *testing.T) {
 		},
 	}
 
-	r := CalculateReadiness("Compute Business Partner", tiers, CenterCompute)
+	r := CalculateReadiness("Compute Business Partner", TierSilver, tiers, CenterCompute)
 	if r == nil {
 		t.Fatal("expected non-nil readiness")
 	}
@@ -205,7 +205,7 @@ func TestParseMembershipTier(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := parseMembershipTier(tt.input)
+		got := ParseMembershipTier(tt.input)
 		if got != tt.want {
 			t.Errorf("parseMembershipTier(%q) = %q, want %q", tt.input, got, tt.want)
 		}
