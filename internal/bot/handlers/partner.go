@@ -96,7 +96,7 @@ func (h *PartnerHandler) HandleCallback(ctx context.Context, b *bot.Bot, update 
 		MessageID: msgID,
 		Text:      card,
 		ParseMode: models.ParseModeHTML,
-		ReplyMarkup: models.InlineKeyboardMarkup{
+		ReplyMarkup: &models.InlineKeyboardMarkup{
 			InlineKeyboard: buttons,
 		},
 	})
