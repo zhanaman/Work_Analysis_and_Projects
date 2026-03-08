@@ -182,23 +182,37 @@ func formatPartnerCard(p *domain.Partner, viewMode string) string {
 			}
 			sb.WriteString(fmt.Sprintf("%d gaps:\n", gapCount))
 
-			// Volume — only if FAILED
-			if readiness.Volume.Required > 0 && !readiness.Volume.Met {
-				sb.WriteString(fmt.Sprintf("  ❌ Volume %s / %s\n",
-					formatNumber(readiness.Volume.Actuals),
-					formatNumber(readiness.Volume.Required)))
-			}
+			// Check for "No tier data" special blocker
+			isNoData := len(readiness.Blockers) > 0 && strings.HasPrefix(readiness.Blockers[0], "No tier data")
 
-			// SRI — only if FAILED
-			if readiness.SRI.Required > 0 && readiness.SRI.Required < domain.SRISentinel && !readiness.SRI.Met {
-				sb.WriteString(fmt.Sprintf("  ❌ SRI %.1f / %.1f\n",
-					readiness.SRI.Actuals, readiness.SRI.Required))
-			}
+			if isNoData {
+				for _, b := range readiness.Blockers {
+					sb.WriteString(fmt.Sprintf("  ❌ %s\n", b))
+				}
+			} else {
+				// Volume — only if FAILED
+				if readiness.Volume.Required > 0 && !readiness.Volume.Met {
+					sb.WriteString(fmt.Sprintf("  ❌ Volume %s / %s\n",
+						formatNumber(readiness.Volume.Actuals),
+						formatNumber(readiness.Volume.Required)))
+				}
 
-			// Certs — only FAILED ones
-			certGaps := formatCertGapsOnly(readiness)
-			if certGaps != "" {
-				sb.WriteString(fmt.Sprintf("  ❌ %s\n", certGaps))
+				// SRI — only if FAILED
+				if readiness.SRI.Required > 0 && readiness.SRI.Required < domain.SRISentinel && !readiness.SRI.Met {
+					sb.WriteString(fmt.Sprintf("  ❌ SRI %.1f / %.1f\n",
+						readiness.SRI.Actuals, readiness.SRI.Required))
+				}
+
+				// Certs — only FAILED ones
+				certGaps := formatCertGapsOnly(readiness)
+				if certGaps != "" {
+					sb.WriteString(fmt.Sprintf("  ❌ %s\n", certGaps))
+				}
+
+				// Growth plan
+				if !readiness.GrowthPlan {
+					sb.WriteString("  ❌ Growth Plan not active\n")
+				}
 			}
 
 			sb.WriteString("\n")
