@@ -417,16 +417,16 @@ func (h *PartnerHandlers) onboardStepCompany(ctx context.Context, b *bot.Bot, ch
 		)
 
 		if user.OnboardMsgID != nil {
-			hint := ""
+			selectHint := "\nВведите точное юридическое название (как при регистрации в системах HPE)"
 			if len(suggestions) > 0 {
-				hint = "\n\n\U0001f4a1 Возможно, вы имели в виду:"
+				selectHint = "\nВыберите из предложенных ниже или введите точное название:"
 			}
 
 			msgText := fmt.Sprintf("\u2b1b\u2b1b\u2b1c <b>Шаг 2/3</b>\n"+
 				"\u2705 Имя: %s\n\n"+
-				"\u274c Компания <b>\"%s\"</b> не найдена в базе.%s\n\n"+
-				"<i>Введите точное юридическое название (как при регистрации в системах HPE)\nДля отмены: /cancel</i>",
-				user.FullName, company, hint)
+				"\u274c Компания <b>\"%s\"</b> не найдена в базе.\n%s\n\n"+
+				"<i>Для отмены: /cancel</i>",
+				user.FullName, company, selectHint)
 
 			var editErr error
 			if len(buttons) > 0 {

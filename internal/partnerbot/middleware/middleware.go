@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
 	"github.com/anonimouskz/pbm-partner-bot/internal/partnerbot/i18n"
@@ -72,8 +73,14 @@ func Auth(userRepo *storage.UserRepo, adminID int64) bot.Middleware {
 				return
 			}
 
-			// User is in an onboarding step — allow text messages through for input
+			// User is in an onboarding step — allow text messages and pcompany: callbacks through
 			if user.OnboardStep != "" {
+				// Allow pcompany: callbacks (company suggestion buttons)
+				if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "pcompany:") {
+					ctx = context.WithValue(ctx, userCtxKey, user)
+					next(ctx, b, update)
+					return
+				}
 				if update.Message == nil || update.Message.Text == "" {
 					return // silently ignore non-text during onboarding
 				}
