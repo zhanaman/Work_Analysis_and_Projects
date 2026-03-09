@@ -62,8 +62,9 @@ func (r *UserRepo) GetOrCreate(ctx context.Context, telegramID int64, username, 
 }
 
 // GetOrCreatePartner finds or creates a user for the Partner bot.
+// Searches by (telegram_id, bot_type='partner') so PBM and Partner bots have separate records.
 func (r *UserRepo) GetOrCreatePartner(ctx context.Context, telegramID int64, username, fullName string) (*domain.User, bool, error) {
-	u, err := r.GetByTelegramID(ctx, telegramID)
+	u, err := r.GetByTelegramIDAndBotType(ctx, telegramID, "partner")
 	if err == nil {
 		return u, false, nil
 	}
@@ -78,6 +79,16 @@ func (r *UserRepo) GetOrCreatePartner(ctx context.Context, telegramID int64, use
 	}
 
 	return u, true, nil
+}
+
+// GetByTelegramIDAndBotType finds a user by Telegram ID and bot type.
+func (r *UserRepo) GetByTelegramIDAndBotType(ctx context.Context, telegramID int64, botType string) (*domain.User, error) {
+	sql := `SELECT ` + userSelectCols + ` FROM users WHERE telegram_id = $1 AND bot_type = $2`
+	u, err := scanUser(r.db.Pool.QueryRow(ctx, sql, telegramID, botType))
+	if err != nil {
+		return nil, fmt.Errorf("get user by telegram_id %d bot_type %s: %w", telegramID, botType, err)
+	}
+	return u, nil
 }
 
 // GetByTelegramID finds a user by their Telegram ID.
