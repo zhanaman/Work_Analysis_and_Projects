@@ -36,7 +36,8 @@ func LangFromContext(ctx context.Context) i18n.Lang {
 
 // Auth creates a middleware for the Partner bot.
 // Registers new users with bot_type="partner" and blocks pending users.
-func Auth(userRepo *storage.UserRepo) bot.Middleware {
+// The adminID user is auto-promoted to admin so their approve/reject callbacks work.
+func Auth(userRepo *storage.UserRepo, adminID int64) bot.Middleware {
 	return func(next bot.HandlerFunc) bot.HandlerFunc {
 		return func(ctx context.Context, b *bot.Bot, update *models.Update) {
 			tgUser := extractTelegramUser(update)
@@ -50,6 +51,14 @@ func Auth(userRepo *storage.UserRepo) bot.Middleware {
 				slog.Error("partner auth: get or create user", "error", err, "telegram_id", tgUser.ID)
 				next(ctx, b, update)
 				return
+			}
+
+			// Auto-promote admin by Telegram ID (needed for approve/reject callbacks)
+			if tgUser.ID == adminID && user.Role != domain.RoleAdmin {
+				if err := userRepo.SetRole(ctx, user.ID, domain.RoleAdmin); err != nil {
+					slog.Error("partner auth: failed to promote admin", "error", err)
+				}
+				user.Role = domain.RoleAdmin
 			}
 
 			// Inject lang into context

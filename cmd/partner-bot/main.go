@@ -64,7 +64,7 @@ func main() {
 	opts := []bot.Option{
 		bot.WithMiddlewares(
 			mw.Logging(),
-			mw.Auth(userRepo),
+			mw.Auth(userRepo, adminID),
 		),
 		bot.WithDefaultHandler(h.HandleDefaultMessage),
 	}
