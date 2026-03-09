@@ -9,6 +9,7 @@ import (
 	"github.com/anonimouskz/pbm-partner-bot/internal/bot/middleware"
 	"github.com/anonimouskz/pbm-partner-bot/internal/chart"
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
+	"github.com/anonimouskz/pbm-partner-bot/internal/rbac"
 	"github.com/anonimouskz/pbm-partner-bot/internal/storage"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -35,7 +36,11 @@ func (h *AdminHandler) HandleStats(ctx context.Context, b *bot.Bot, update *mode
 	}
 
 	user := middleware.UserFromContext(ctx)
-	if user == nil || !user.IsAuthorized() {
+	if !rbac.Can(user, rbac.ViewStats) {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "🚫 У вас нет доступа к аналитике.",
+		})
 		return
 	}
 
@@ -103,6 +108,12 @@ func (h *AdminHandler) HandleStatsCallback(ctx context.Context, b *bot.Bot, upda
 	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 		CallbackQueryID: update.CallbackQuery.ID,
 	})
+
+	// RBAC check for stats
+	user := middleware.UserFromContext(ctx)
+	if !rbac.Can(user, rbac.ViewStats) {
+		return
+	}
 
 	var chatID int64
 	var msgID int
@@ -338,7 +349,7 @@ func (h *AdminHandler) HandleUsers(ctx context.Context, b *bot.Bot, update *mode
 	}
 
 	user := middleware.UserFromContext(ctx)
-	if user == nil || !user.IsAdmin() {
+	if !rbac.Can(user, rbac.ManageUsers) {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   "🚫 Эта команда доступна только администратору.",
@@ -397,7 +408,7 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 	}
 
 	user := middleware.UserFromContext(ctx)
-	if user == nil || !user.IsAdmin() {
+	if !rbac.Can(user, rbac.ManageUsers) {
 		return
 	}
 
@@ -438,11 +449,9 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 		newRole = domain.RoleUser
 		responseText = "✅ Пользователь одобрен!"
 	} else {
-		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-			CallbackQueryID: update.CallbackQuery.ID,
-			Text:            "❌ Пользователь отклонён",
-		})
-		return
+		// Reject: set user back to pending
+		newRole = domain.RolePending
+		responseText = "❌ Пользователь отклонён"
 	}
 
 	if err := h.userRepo.SetRole(ctx, targetUser.ID, newRole); err != nil {
@@ -472,7 +481,7 @@ func (h *AdminHandler) HandleChartCallback(ctx context.Context, b *bot.Bot, upda
 	}
 
 	user := middleware.UserFromContext(ctx)
-	if user == nil || !user.IsAuthorized() {
+	if !rbac.Can(user, rbac.ViewCharts) {
 		return
 	}
 
@@ -627,107 +636,4 @@ func (h *AdminHandler) chartConcentration(ctx context.Context) (string, string) 
 	return url, caption
 }
 
-// HandlePartnerApproval handles admin approval/rejection of partner bot users.
-// Callback format: "papprove:123" or "preject:123" where 123 is the partner user's DB ID.
-func (h *AdminHandler) HandlePartnerApproval(ctx context.Context, b *bot.Bot, update *models.Update) {
-	if update.CallbackQuery == nil {
-		return
-	}
 
-	// Only admins can approve
-	user := middleware.UserFromContext(ctx)
-	if user == nil || !user.IsAdmin() {
-		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-			CallbackQueryID: update.CallbackQuery.ID,
-			Text:            "❌ Access denied",
-			ShowAlert:       true,
-		})
-		return
-	}
-
-	data := update.CallbackQuery.Data
-	isApprove := strings.HasPrefix(data, "papprove:")
-
-	var prefix string
-	if isApprove {
-		prefix = "papprove:"
-	} else {
-		prefix = "preject:"
-	}
-
-	userIDStr := strings.TrimPrefix(data, prefix)
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		return
-	}
-
-	// Load the partner user
-	partnerUser, err := h.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-			CallbackQueryID: update.CallbackQuery.ID,
-			Text:            "❌ User not found",
-			ShowAlert:       true,
-		})
-		return
-	}
-
-	if isApprove {
-		if err := h.userRepo.ApprovePartner(ctx, userID); err != nil {
-			b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-				CallbackQueryID: update.CallbackQuery.ID,
-				Text:            "❌ Error: " + err.Error(),
-				ShowAlert:       true,
-			})
-			return
-		}
-
-		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-			CallbackQueryID: update.CallbackQuery.ID,
-			Text:            "✅ Partner approved!",
-		})
-
-		// Update admin message
-		if update.CallbackQuery.Message.Message != nil {
-			b.EditMessageText(ctx, &bot.EditMessageTextParams{
-				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
-				MessageID: update.CallbackQuery.Message.Message.ID,
-				Text: fmt.Sprintf("✅ <b>Approved</b>\n\n👤 %s (@%s)\n📧 %s\n🏢 Partner ID: %d",
-					partnerUser.FullName, partnerUser.Username, partnerUser.Email, safePartnerID(partnerUser.PartnerID)),
-				ParseMode: models.ParseModeHTML,
-			})
-		}
-	} else {
-		// Reject — clear partner link, keep pending
-		if err := h.userRepo.SetRole(ctx, userID, domain.RolePending); err != nil {
-			b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-				CallbackQueryID: update.CallbackQuery.ID,
-				Text:            "❌ Error: " + err.Error(),
-				ShowAlert:       true,
-			})
-			return
-		}
-
-		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-			CallbackQueryID: update.CallbackQuery.ID,
-			Text:            "❌ Partner rejected",
-		})
-
-		if update.CallbackQuery.Message.Message != nil {
-			b.EditMessageText(ctx, &bot.EditMessageTextParams{
-				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
-				MessageID: update.CallbackQuery.Message.Message.ID,
-				Text: fmt.Sprintf("❌ <b>Rejected</b>\n\n👤 %s (@%s)\n📧 %s",
-					partnerUser.FullName, partnerUser.Username, partnerUser.Email),
-				ParseMode: models.ParseModeHTML,
-			})
-		}
-	}
-}
-
-func safePartnerID(pid *int) int {
-	if pid == nil {
-		return 0
-	}
-	return *pid
-}
