@@ -12,6 +12,7 @@ import (
 	"github.com/anonimouskz/pbm-partner-bot/internal/partnerbot/i18n"
 	"github.com/anonimouskz/pbm-partner-bot/internal/partnerbot/middleware"
 	"github.com/anonimouskz/pbm-partner-bot/internal/shared/card"
+	"github.com/anonimouskz/pbm-partner-bot/internal/shared/tgapi"
 	"github.com/anonimouskz/pbm-partner-bot/internal/storage"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -23,15 +24,17 @@ var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-
 type PartnerHandlers struct {
 	userRepo    *storage.UserRepo
 	partnerRepo *storage.PartnerRepo
-	adminChatID int64 // PBM admin Telegram ID for notifications
+	adminChatID int64  // PBM admin Telegram ID for notifications
+	pbmBotToken string // PBM bot token for sending admin notifications
 }
 
 // New creates a new PartnerHandlers.
-func New(userRepo *storage.UserRepo, partnerRepo *storage.PartnerRepo, adminChatID int64) *PartnerHandlers {
+func New(userRepo *storage.UserRepo, partnerRepo *storage.PartnerRepo, adminChatID int64, pbmBotToken string) *PartnerHandlers {
 	return &PartnerHandlers{
 		userRepo:    userRepo,
 		partnerRepo: partnerRepo,
 		adminChatID: adminChatID,
+		pbmBotToken: pbmBotToken,
 	}
 }
 
@@ -362,222 +365,34 @@ func (h *PartnerHandlers) onboardStepEmail(ctx context.Context, b *bot.Bot, chat
 	h.notifyAdminPartnerRequest(ctx, b, user, email)
 }
 
-// notifyAdminPartnerRequest sends a notification to the PBM admin about a new partner request.
+// notifyAdminPartnerRequest sends a notification to the PBM admin via the PBM bot.
+// Uses the PBM bot token so the message appears in the admin's PBM bot chat.
 func (h *PartnerHandlers) notifyAdminPartnerRequest(ctx context.Context, b *bot.Bot, user *domain.User, email string) {
 	text := fmt.Sprintf(
-		"🆕 <b>Запрос на доступ (Partner Bot)</b>\n\n"+
-			"👤 %s\n"+
-			"📱 @%s\n"+
-			"🏢 %s\n"+
-			"📧 %s\n\n"+
+		"\U0001f195 <b>Запрос на доступ (Partner Bot)</b>\n\n"+
+			"\U0001f464 %s\n"+
+			"\U0001f4f1 @%s\n"+
+			"\U0001f3e2 %s\n"+
+			"\U0001f4e7 %s\n\n"+
 			"Проверьте и решите:",
 		user.FullName, user.Username, user.CompanyName, email,
 	)
 
-	b.SendMessage(ctx, &bot.SendMessageParams{
+	_, err := tgapi.SendMessage(h.pbmBotToken, tgapi.SendMessageParams{
 		ChatID:    h.adminChatID,
 		Text:      text,
-		ParseMode: models.ParseModeHTML,
-		ReplyMarkup: &models.InlineKeyboardMarkup{
-			InlineKeyboard: [][]models.InlineKeyboardButton{
+		ParseMode: "HTML",
+		ReplyMarkup: &tgapi.InlineKeyboardMarkup{
+			InlineKeyboard: [][]tgapi.InlineKeyboardButton{
 				{
-					{Text: "✅ Approve", CallbackData: fmt.Sprintf("papprove:%d", user.ID)},
-					{Text: "❌ Reject", CallbackData: fmt.Sprintf("preject:%d", user.ID)},
+					{Text: "\u2705 Approve", CallbackData: fmt.Sprintf("papprove:%d", user.ID)},
+					{Text: "\u274c Reject", CallbackData: fmt.Sprintf("preject:%d", user.ID)},
 				},
 			},
 		},
 	})
-}
-
-// HandleApproveCallback handles admin approve/reject of partner requests.
-// The admin clicks buttons in the partner bot's notification message.
-func (h *PartnerHandlers) HandleApproveCallback(ctx context.Context, b *bot.Bot, update *models.Update) {
-	if update.CallbackQuery == nil {
-		return
-	}
-
-	// Only admin can approve/reject
-	if update.CallbackQuery.From.ID != h.adminChatID {
-		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-			CallbackQueryID: update.CallbackQuery.ID,
-			Text:            "❌ Access denied",
-			ShowAlert:       true,
-		})
-		return
-	}
-
-	data := update.CallbackQuery.Data
-	isApprove := strings.HasPrefix(data, "papprove:")
-
-	var prefix string
-	if isApprove {
-		prefix = "papprove:"
-	} else {
-		prefix = "preject:"
-	}
-
-	userIDStr := strings.TrimPrefix(data, prefix)
-	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
-		return
-	}
-
-	// Load the partner user
-	partnerUser, err := h.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-			CallbackQueryID: update.CallbackQuery.ID,
-			Text:            "❌ User not found",
-			ShowAlert:       true,
-		})
-		return
-	}
-
-	if isApprove {
-		// Approve: update DB
-		if err := h.userRepo.ApprovePartner(ctx, userID); err != nil {
-			b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-				CallbackQueryID: update.CallbackQuery.ID,
-				Text:            "❌ Error: " + err.Error(),
-				ShowAlert:       true,
-			})
-			return
-		}
-
-		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-			CallbackQueryID: update.CallbackQuery.ID,
-			Text:            "✅ Approved!",
-		})
-
-		// Edit admin message
-		if update.CallbackQuery.Message.Message != nil {
-			b.EditMessageText(ctx, &bot.EditMessageTextParams{
-				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
-				MessageID: update.CallbackQuery.Message.Message.ID,
-				Text: fmt.Sprintf("✅ <b>Одобрено</b>\n\n"+
-					"👤 %s\n"+
-					"🏢 %s\n"+
-					"📧 %s",
-					partnerUser.FullName, partnerUser.CompanyName, partnerUser.Email),
-				ParseMode: models.ParseModeHTML,
-			})
-		}
-
-		// Edit partner's onboarding message
-		if partnerUser.OnboardMsgID != nil {
-			b.EditMessageText(ctx, &bot.EditMessageTextParams{
-				ChatID:    partnerUser.TelegramID,
-				MessageID: *partnerUser.OnboardMsgID,
-				Text: "✅ <b>Доступ подтверждён!</b>\n\n" +
-					"Используйте /status для просмотра\n" +
-					"карточки вашей компании.",
-				ParseMode: models.ParseModeHTML,
-			})
-		}
-
-	} else {
-		// Reject: edit admin message with "no comment" option + ask for comment
-		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-			CallbackQueryID: update.CallbackQuery.ID,
-		})
-
-		// Edit admin message — replace buttons with comment prompt
-		if update.CallbackQuery.Message.Message != nil {
-			b.EditMessageText(ctx, &bot.EditMessageTextParams{
-				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
-				MessageID: update.CallbackQuery.Message.Message.ID,
-				Text: fmt.Sprintf("❌ <b>Отклонение</b>\n\n"+
-					"👤 %s\n"+
-					"📧 %s\n\n"+
-					"Напишите причину отказа или нажмите кнопку:",
-					partnerUser.FullName, partnerUser.Email),
-				ParseMode: models.ParseModeHTML,
-				ReplyMarkup: &models.InlineKeyboardMarkup{
-					InlineKeyboard: [][]models.InlineKeyboardButton{
-						{{Text: "Без комментария", CallbackData: fmt.Sprintf("prejectconfirm:%d:", userID)}},
-					},
-				},
-			})
-		}
-
-		// Save pending reject state — admin's next text message will be the comment
-		h.userRepo.SetOnboardData(ctx, userID, "rejected", partnerUser.FullName, partnerUser.CompanyName, partnerUser.Email)
+		slog.Error("failed to send admin notification via PBM bot", "error", err)
 	}
 }
 
-// HandleRejectConfirm handles the "no comment" reject confirm button.
-func (h *PartnerHandlers) HandleRejectConfirm(ctx context.Context, b *bot.Bot, update *models.Update) {
-	if update.CallbackQuery == nil {
-		return
-	}
-	if update.CallbackQuery.From.ID != h.adminChatID {
-		return
-	}
-
-	data := update.CallbackQuery.Data
-	// Format: "prejectconfirm:123:" or "prejectconfirm:123:comment text"
-	rest := strings.TrimPrefix(data, "prejectconfirm:")
-	parts := strings.SplitN(rest, ":", 2)
-	if len(parts) < 1 {
-		return
-	}
-
-	userID, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return
-	}
-
-	comment := ""
-	if len(parts) == 2 {
-		comment = parts[1]
-	}
-
-	h.executeReject(ctx, b, update, userID, comment)
-}
-
-// executeReject performs the actual rejection with optional comment.
-func (h *PartnerHandlers) executeReject(ctx context.Context, b *bot.Bot, update *models.Update, userID int, comment string) {
-	partnerUser, err := h.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return
-	}
-
-	// Reset user for re-registration
-	h.userRepo.ResetOnboard(ctx, userID)
-
-	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
-		CallbackQueryID: update.CallbackQuery.ID,
-		Text:            "❌ Rejected",
-	})
-
-	// Build reject text
-	commentLine := ""
-	if comment != "" {
-		commentLine = fmt.Sprintf("\n💬 %s", comment)
-	}
-
-	// Edit admin message
-	if update.CallbackQuery.Message.Message != nil {
-		b.EditMessageText(ctx, &bot.EditMessageTextParams{
-			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
-			MessageID: update.CallbackQuery.Message.Message.ID,
-			Text: fmt.Sprintf("❌ <b>Отклонено</b>\n\n"+
-				"👤 %s\n"+
-				"📧 %s%s",
-				partnerUser.FullName, partnerUser.Email, commentLine),
-			ParseMode: models.ParseModeHTML,
-		})
-	}
-
-	// Edit partner's onboarding message
-	if partnerUser.OnboardMsgID != nil {
-		b.EditMessageText(ctx, &bot.EditMessageTextParams{
-			ChatID:    partnerUser.TelegramID,
-			MessageID: *partnerUser.OnboardMsgID,
-			Text: fmt.Sprintf("❌ <b>Запрос отклонён</b>%s\n\n"+
-				"Нажмите /start чтобы подать заново",
-				commentLine),
-			ParseMode: models.ParseModeHTML,
-		})
-	}
-}

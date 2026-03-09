@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/anonimouskz/pbm-partner-bot/internal/chart"
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
 	"github.com/anonimouskz/pbm-partner-bot/internal/rbac"
+	"github.com/anonimouskz/pbm-partner-bot/internal/shared/tgapi"
 	"github.com/anonimouskz/pbm-partner-bot/internal/storage"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -17,15 +19,17 @@ import (
 
 // AdminHandler handles admin-only commands.
 type AdminHandler struct {
-	userRepo    *storage.UserRepo
-	partnerRepo *storage.PartnerRepo
+	userRepo        *storage.UserRepo
+	partnerRepo     *storage.PartnerRepo
+	partnerBotToken string // Partner bot token for cross-bot message editing
 }
 
 // NewAdminHandler creates a new AdminHandler.
-func NewAdminHandler(userRepo *storage.UserRepo, partnerRepo *storage.PartnerRepo) *AdminHandler {
+func NewAdminHandler(userRepo *storage.UserRepo, partnerRepo *storage.PartnerRepo, partnerBotToken string) *AdminHandler {
 	return &AdminHandler{
-		userRepo:    userRepo,
-		partnerRepo: partnerRepo,
+		userRepo:        userRepo,
+		partnerRepo:     partnerRepo,
+		partnerBotToken: partnerBotToken,
 	}
 }
 
@@ -636,4 +640,178 @@ func (h *AdminHandler) chartConcentration(ctx context.Context) (string, string) 
 	return url, caption
 }
 
+// HandlePartnerApproval handles admin approval/rejection of partner bot users.
+// Callback format: "papprove:123" or "preject:123" where 123 is partner user DB ID.
+func (h *AdminHandler) HandlePartnerApproval(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
 
+	user := middleware.UserFromContext(ctx)
+	if !rbac.Can(user, rbac.ManageUsers) {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ Access denied",
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	data := update.CallbackQuery.Data
+	isApprove := strings.HasPrefix(data, "papprove:")
+
+	var prefix string
+	if isApprove {
+		prefix = "papprove:"
+	} else {
+		prefix = "preject:"
+	}
+
+	userIDStr := strings.TrimPrefix(data, prefix)
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		return
+	}
+
+	partnerUser, err := h.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ User not found",
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	if isApprove {
+		if err := h.userRepo.ApprovePartner(ctx, userID); err != nil {
+			b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+				CallbackQueryID: update.CallbackQuery.ID,
+				Text:            "❌ Error: " + err.Error(),
+				ShowAlert:       true,
+			})
+			return
+		}
+
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "✅ Approved!",
+		})
+
+		// Edit admin message (PBM bot's own message)
+		if update.CallbackQuery.Message.Message != nil {
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID: update.CallbackQuery.Message.Message.ID,
+				Text: fmt.Sprintf("✅ <b>Одобрено</b>\n\n"+
+					"👤 %s\n🏢 %s\n📧 %s",
+					partnerUser.FullName, partnerUser.CompanyName, partnerUser.Email),
+				ParseMode: models.ParseModeHTML,
+			})
+		}
+
+		// Edit partner's onboarding message via partner bot token
+		if partnerUser.OnboardMsgID != nil && h.partnerBotToken != "" {
+			if err := tgapi.EditMessageText(h.partnerBotToken, tgapi.EditMessageTextParams{
+				ChatID:    partnerUser.TelegramID,
+				MessageID: *partnerUser.OnboardMsgID,
+				Text:      "✅ <b>Доступ подтверждён!</b>\n\nИспользуйте /status для просмотра\nкарточки вашей компании.",
+				ParseMode: "HTML",
+			}); err != nil {
+				slog.Error("failed to edit partner message", "error", err)
+			}
+		}
+
+	} else {
+		// Reject: ask for comment
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+		})
+
+		if update.CallbackQuery.Message.Message != nil {
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID: update.CallbackQuery.Message.Message.ID,
+				Text: fmt.Sprintf("❌ <b>Отклонение</b>\n\n"+
+					"👤 %s\n📧 %s\n\n"+
+					"Напишите причину отказа или нажмите кнопку:",
+					partnerUser.FullName, partnerUser.Email),
+				ParseMode: models.ParseModeHTML,
+				ReplyMarkup: models.InlineKeyboardMarkup{
+					InlineKeyboard: [][]models.InlineKeyboardButton{
+						{{Text: "Без комментария", CallbackData: fmt.Sprintf("prejectconfirm:%d:", userID)}},
+					},
+				},
+			})
+		}
+
+		h.userRepo.SetOnboardData(ctx, userID, "rejected", partnerUser.FullName, partnerUser.CompanyName, partnerUser.Email)
+	}
+}
+
+// HandlePartnerRejectConfirm handles the "no comment" reject confirm.
+func (h *AdminHandler) HandlePartnerRejectConfirm(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+
+	user := middleware.UserFromContext(ctx)
+	if !rbac.Can(user, rbac.ManageUsers) {
+		return
+	}
+
+	data := update.CallbackQuery.Data
+	rest := strings.TrimPrefix(data, "prejectconfirm:")
+	parts := strings.SplitN(rest, ":", 2)
+	if len(parts) < 1 {
+		return
+	}
+
+	userID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return
+	}
+
+	comment := ""
+	if len(parts) == 2 {
+		comment = parts[1]
+	}
+
+	partnerUser, err := h.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return
+	}
+
+	h.userRepo.ResetOnboard(ctx, userID)
+
+	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+		Text:            "❌ Rejected",
+	})
+
+	commentLine := ""
+	if comment != "" {
+		commentLine = fmt.Sprintf("\n💬 %s", comment)
+	}
+
+	// Edit admin message
+	if update.CallbackQuery.Message.Message != nil {
+		b.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+			MessageID: update.CallbackQuery.Message.Message.ID,
+			Text: fmt.Sprintf("❌ <b>Отклонено</b>\n\n👤 %s\n📧 %s%s",
+				partnerUser.FullName, partnerUser.Email, commentLine),
+			ParseMode: models.ParseModeHTML,
+		})
+	}
+
+	// Edit partner's onboarding message via partner bot token
+	if partnerUser.OnboardMsgID != nil && h.partnerBotToken != "" {
+		tgapi.EditMessageText(h.partnerBotToken, tgapi.EditMessageTextParams{
+			ChatID:    partnerUser.TelegramID,
+			MessageID: *partnerUser.OnboardMsgID,
+			Text:      fmt.Sprintf("❌ <b>Запрос отклонён</b>%s\n\nНажмите /start чтобы подать заново", commentLine),
+			ParseMode: "HTML",
+		})
+	}
+}

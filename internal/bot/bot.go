@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"log/slog"
+	"os"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/bot/handlers"
 	mw "github.com/anonimouskz/pbm-partner-bot/internal/bot/middleware"
@@ -19,9 +20,10 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	userRepo := storage.NewUserRepo(db)
 
 	// Create handlers
+	partnerBotToken := os.Getenv("PARTNER_BOT_TOKEN")
 	searchHandler := handlers.NewSearchHandler(partnerRepo)
 	partnerHandler := handlers.NewPartnerHandler(partnerRepo)
-	adminHandler := handlers.NewAdminHandler(userRepo, partnerRepo)
+	adminHandler := handlers.NewAdminHandler(userRepo, partnerRepo, partnerBotToken)
 
 	// Create bot options
 	opts := []bot.Option{
@@ -52,6 +54,11 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "stats:", bot.MatchTypePrefix, adminHandler.HandleStatsCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "menu:", bot.MatchTypePrefix, handlers.HandleMenuCallback(searchHandler, adminHandler))
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "chart:", bot.MatchTypePrefix, adminHandler.HandleChartCallback)
+
+	// Partner approval callbacks (sent via PBM bot token from partner-bot)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "papprove:", bot.MatchTypePrefix, adminHandler.HandlePartnerApproval)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "preject:", bot.MatchTypePrefix, adminHandler.HandlePartnerApproval)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "prejectconfirm:", bot.MatchTypePrefix, adminHandler.HandlePartnerRejectConfirm)
 
 	// Register bot commands for the "/" menu
 	b.SetMyCommands(ctx, &bot.SetMyCommandsParams{

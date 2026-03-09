@@ -32,6 +32,8 @@ func main() {
 	adminIDStr := os.Getenv("ADMIN_TELEGRAM_ID")
 	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
 
+	pbmToken := os.Getenv("TELEGRAM_BOT_TOKEN") // PBM bot token for cross-bot notifications
+
 	// Setup logging
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
@@ -58,7 +60,7 @@ func main() {
 	partnerRepo := storage.NewPartnerRepo(db)
 
 	// Create handlers
-	h := handlers.New(userRepo, partnerRepo, adminID)
+	h := handlers.New(userRepo, partnerRepo, adminID, pbmToken)
 
 	// Create bot
 	opts := []bot.Option{
@@ -84,9 +86,7 @@ func main() {
 	// Register callback handlers
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "pcard:", bot.MatchTypePrefix, h.HandleCardCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "lang:", bot.MatchTypePrefix, h.HandleLangCallback)
-	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "papprove:", bot.MatchTypePrefix, h.HandleApproveCallback)
-	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "preject:", bot.MatchTypePrefix, h.HandleApproveCallback)
-	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "prejectconfirm:", bot.MatchTypePrefix, h.HandleRejectConfirm)
+	// papprove:/preject:/prejectconfirm: callbacks handled by PBM bot
 
 	// Register bot commands for the "/" menu
 	b.SetMyCommands(ctx, &bot.SetMyCommandsParams{
