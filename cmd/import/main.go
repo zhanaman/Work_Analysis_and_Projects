@@ -113,7 +113,8 @@ func main() {
 	)
 
 	// Log the import
-	err = repo.LogImport(ctx, *filePath, result.SheetsParsed,
+	slog.Info("data refresh date", "date", result.RefreshDate)
+	err = repo.LogImport(ctx, *filePath, result.RefreshDate, result.SheetsParsed,
 		len(result.Partners), result.CCARows,
 		int(result.Duration.Milliseconds()))
 	if err != nil {

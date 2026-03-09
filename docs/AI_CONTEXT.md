@@ -32,11 +32,11 @@ Within each center, partners can pursue specific Tiers:
 - **Actionable Data**: Always show *why* a partner is failing ("X gaps", "❌ Volume $X / $Y", "❌ Certs X/Y"). Do not show ✅ for passing criteria if it clutters the view.
 
 ## 5. Deployment / Makefile Commands
-- `make upload FILE=...`: Uploads an `.xlsx` file from the host machine to the VPS via SCP, executes `/app/importer` inside the running Docker container, and immediately deletes the `.xlsx` file from the server. Date is extracted from filename.
+- `make upload FILE=...`: Uploads an `.xlsx` file from the host machine to the VPS via SCP, executes `/app/importer` inside the running Docker container, and immediately deletes the `.xlsx` file from the server. The data date is extracted from the Excel's `Refresh_date` column (not from the filename).
 - `make deploy`: Triggers a `git pull` and `docker compose up --build -d` on the remote VPS.
 - `make import-local FILE=...`: Runs the parser locally against local postgres (port 5433).
 
 ## 6. Known Trade-Offs & Quirks
 - The `excelize` library parses files fully into memory unless `StreamRowReader` is used. Stream parsing is mandatory.
-- The VPS has 2GB RAM. `make upload` requires the 2GB SWAP file on the VPS to parse 80MB+ Excel files without triggering Linux OOM Killer.
-- `data_date` is extracted via regex `(\d{4})[-_](\d{2})[-_](\d{2})` from the filename, not from inside the Excel document itself.
+- The VPS has 2GB RAM + 2GB persistent SWAP. This is enough to parse 80MB+ Excel files without OOM.
+- `data_date` is extracted from the Excel's `Refresh_date` / `Refreshed date` column (found in Compute, HC, Networking sheets). Multiple date formats are handled: `MM-DD-YY`, `M/D/YY HH:MM`, `YYYY-MM-DD`.

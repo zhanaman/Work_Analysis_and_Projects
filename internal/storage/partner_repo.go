@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
@@ -400,12 +399,16 @@ func (r *PartnerRepo) TierDistribution(ctx context.Context, regionFilter string)
 	return result, nil
 }
 
-// LogImport records an import operation with optional data date.
-func (r *PartnerRepo) LogImport(ctx context.Context, filename string, sheets []string, totalPartners, ccaPartners int, durationMs int) error {
+// LogImport records an import operation with data date from Excel.
+func (r *PartnerRepo) LogImport(ctx context.Context, filename string, dataDate string, sheets []string, totalPartners, ccaPartners int, durationMs int) error {
+	var dd *string
+	if dataDate != "" {
+		dd = &dataDate
+	}
 	_, err := r.db.Pool.Exec(ctx, `
 		INSERT INTO import_log (filename, data_date, sheets_parsed, partners_total, partners_cca, duration_ms)
 		VALUES ($1, $2, $3, $4, $5, $6)
-	`, filename, ExtractDateFromFilename(filename), sheets, totalPartners, ccaPartners, durationMs)
+	`, filename, dd, sheets, totalPartners, ccaPartners, durationMs)
 	return err
 }
 
@@ -419,17 +422,6 @@ func (r *PartnerRepo) GetLastImportDate(ctx context.Context) (dataDate string, i
 	return
 }
 
-// ExtractDateFromFilename extracts a date pattern (YYYY-MM-DD or YYYY_MM_DD) from a filename.
-func ExtractDateFromFilename(filename string) *string {
-	// Look for YYYY-MM-DD or YYYY_MM_DD patterns
-	re := regexp.MustCompile(`(\d{4})[-_](\d{2})[-_](\d{2})`)
-	match := re.FindStringSubmatch(filename)
-	if len(match) >= 4 {
-		date := match[1] + "-" + match[2] + "-" + match[3]
-		return &date
-	}
-	return nil
-}
 
 // CountryStats returns partner count by country, sorted descending.
 func (r *PartnerRepo) CountryStats(ctx context.Context) ([]CountryStat, error) {

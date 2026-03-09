@@ -17,6 +17,7 @@ type ParseResult struct {
 	CCARows      int
 	SkippedRows  int
 	SheetsParsed []string
+	RefreshDate  string // extracted from "Refresh_date" column in Excel
 	Duration     time.Duration
 }
 
@@ -81,6 +82,11 @@ func (p *ExcelParser) Parse() (*ParseResult, error) {
 		result.CCARows += parsed.ccaRows
 		result.SkippedRows += parsed.skippedRows
 
+		// Take refresh date from the first sheet that has it
+		if result.RefreshDate == "" && parsed.refreshDate != "" {
+			result.RefreshDate = parsed.refreshDate
+		}
+
 		// Merge parsed data into result
 		for partyID, data := range parsed.partners {
 			existing, ok := result.Partners[partyID]
@@ -123,6 +129,7 @@ type sheetParseResult struct {
 	totalRows   int
 	ccaRows     int
 	skippedRows int
+	refreshDate string
 }
 
 // parseSheet parses a single center sheet.
@@ -161,6 +168,15 @@ func (p *ExcelParser) parseSheet(f *excelize.File, cfg CenterConfig) (*sheetPars
 		partners: make(map[string]*domain.Partner),
 	}
 
+	// Extract refresh date from header columns
+	for _, name := range []string{"Refresh_date", "Refresh date", "Refreshed date"} {
+		if idx, ok := cm[name]; ok {
+			_ = idx // we'll read it from first data row below
+			result.refreshDate = "__pending:" + name
+			break
+		}
+	}
+
 	// Parse data rows
 	for rows.Next() {
 		rowNum++
@@ -188,6 +204,13 @@ func (p *ExcelParser) parseSheet(f *excelize.File, cfg CenterConfig) (*sheetPars
 		}
 
 		result.ccaRows++
+
+		// Extract refresh date from first data row
+		if strings.HasPrefix(result.refreshDate, "__pending:") {
+			colName := strings.TrimPrefix(result.refreshDate, "__pending:")
+			raw := cm.get(cols, colName)
+			result.refreshDate = parseRefreshDate(raw)
+		}
 
 		// Get or create partner in result map
 		existing, ok := result.partners[partner.PartyID]
