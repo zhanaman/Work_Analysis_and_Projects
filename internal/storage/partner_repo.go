@@ -175,6 +175,31 @@ func (r *PartnerRepo) ExistsByName(ctx context.Context, name string) (bool, erro
 	return exists, nil
 }
 
+// SearchByNameFuzzy returns up to 5 similar partner names for suggestions.
+func (r *PartnerRepo) SearchByNameFuzzy(ctx context.Context, query string) ([]string, error) {
+	rows, err := r.db.Pool.Query(ctx, `
+		SELECT DISTINCT name FROM partners
+		WHERE name ILIKE '%' || $1 || '%'
+		   OR global_entity_name ILIKE '%' || $1 || '%'
+		ORDER BY similarity(name, $1) DESC
+		LIMIT 5
+	`, query)
+	if err != nil {
+		return nil, fmt.Errorf("fuzzy search partners: %w", err)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		names = append(names, n)
+	}
+	return names, rows.Err()
+}
+
 // UpsertFromParsed inserts or updates partners from parsed Excel data.
 // Returns (inserted, updated, error).
 func (r *PartnerRepo) UpsertFromParsed(ctx context.Context, partners map[string]*domain.Partner) (int, int, error) {

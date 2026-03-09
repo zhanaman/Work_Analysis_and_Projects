@@ -80,11 +80,14 @@ func main() {
 	// Register command handlers
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypeExact, h.HandleStart)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/help", bot.MatchTypeExact, h.HandleHelp)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/cancel", bot.MatchTypeExact, h.HandleCancel)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/status", bot.MatchTypeExact, h.HandleStatus)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/lang", bot.MatchTypeExact, h.HandleLangCallback)
 
 	// Register callback handlers
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "pcard:", bot.MatchTypePrefix, h.HandleCardCallback)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "pcompany:", bot.MatchTypePrefix, h.HandleCompanySelect)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "phelp", bot.MatchTypeExact, h.HandleHelpCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "lang:", bot.MatchTypePrefix, h.HandleLangCallback)
 	// papprove:/preject:/prejectconfirm: callbacks handled by PBM bot
 
@@ -93,6 +96,7 @@ func main() {
 		Commands: []models.BotCommand{
 			{Command: "status", Description: "📊 Карточка компании / Company card"},
 			{Command: "lang", Description: "🌐 Язык / Language"},
+			{Command: "cancel", Description: "❌ Отменить / Cancel"},
 			{Command: "help", Description: "❓ Помощь / Help"},
 		},
 	})

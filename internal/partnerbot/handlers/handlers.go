@@ -52,11 +52,23 @@ func (h *PartnerHandlers) HandleStart(ctx context.Context, b *bot.Bot, update *m
 		return
 	}
 
-	// Already approved — welcome back
+	// Already approved — personalized welcome back with quick actions (4.4, 4.8)
 	if user.IsAuthorized() && user.PartnerID != nil {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: chatID,
-			Text:   i18n.T("welcome_back", lang),
+			Text: fmt.Sprintf("\U0001f44b <b>С возвращением, %s!</b>\n\nВыберите действие:", user.FullName),
+			ParseMode: models.ParseModeHTML,
+			ReplyMarkup: &models.InlineKeyboardMarkup{
+				InlineKeyboard: [][]models.InlineKeyboardButton{
+					{
+						{Text: "\U0001f4ca Карточка компании", CallbackData: fmt.Sprintf("pcard:%d:retention", *user.PartnerID)},
+					},
+					{
+						{Text: "\U0001f310 Язык", CallbackData: "lang:choose"},
+						{Text: "\u2753 Помощь", CallbackData: "phelp"},
+					},
+				},
+			},
 		})
 		return
 	}
@@ -70,10 +82,10 @@ func (h *PartnerHandlers) HandleStart(ctx context.Context, b *bot.Bot, update *m
 		return
 	}
 
-	// New user or reset — start onboarding: Step 1 (full name)
+	// New user or reset — start onboarding: Step 1 (full name) with progress bar (4.7)
 	msg, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    chatID,
-		Text:      "👋 Добро пожаловать в Partner Performance Bot!\n\n📝 <b>Шаг 1/3</b>\nВведите ваше имя и фамилию:",
+		Text:      "\U0001f44b Добро пожаловать в Partner Performance Bot!\n\n\u2b1b\u2b1c\u2b1c <b>Шаг 1/3</b>\nВведите ваше имя и фамилию:\n\n<i>Для отмены: /cancel</i>",
 		ParseMode: models.ParseModeHTML,
 	})
 	if err != nil {
@@ -99,6 +111,56 @@ func (h *PartnerHandlers) HandleHelp(ctx context.Context, b *bot.Bot, update *mo
 	})
 }
 
+// HandleCancel handles the /cancel command — exits onboarding (4.1).
+func (h *PartnerHandlers) HandleCancel(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.Message == nil {
+		return
+	}
+
+	user := middleware.UserFromContext(ctx)
+	chatID := update.Message.Chat.ID
+
+	if user == nil || user.OnboardStep == "" {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: chatID,
+			Text:   "\u2139\ufe0f Нечего отменять.",
+		})
+		return
+	}
+
+	// Reset onboarding state
+	h.userRepo.SetOnboardData(ctx, user.ID, "", "", "", "")
+
+	// Edit the onboarding message
+	if user.OnboardMsgID != nil {
+		b.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    chatID,
+			MessageID: *user.OnboardMsgID,
+			Text:      "\u274c <b>Регистрация отменена</b>\n\nНажмите /start чтобы начать заново.",
+			ParseMode: models.ParseModeHTML,
+		})
+	}
+}
+
+// HandleHelpCallback handles inline help button.
+func (h *PartnerHandlers) HandleHelpCallback(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+	lang := middleware.LangFromContext(ctx)
+	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+	})
+	if update.CallbackQuery.Message.Message != nil {
+		b.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+			MessageID: update.CallbackQuery.Message.Message.ID,
+			Text:      i18n.T("help", lang),
+			ParseMode: models.ParseModeHTML,
+		})
+	}
+}
+
 // HandleStatus shows the partner's own company card.
 func (h *PartnerHandlers) HandleStatus(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if update.Message == nil {
@@ -110,19 +172,31 @@ func (h *PartnerHandlers) HandleStatus(ctx context.Context, b *bot.Bot, update *
 	chatID := update.Message.Chat.ID
 
 	if user == nil || user.PartnerID == nil {
+		// Informative empty state (4.3)
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: chatID,
-			Text:   i18n.T("no_partner", lang),
+			Text: "\U0001f50d <b>Компания не привязана</b>\n\n" +
+				"Чтобы начать:\n" +
+				"1. Нажмите /start\n" +
+				"2. Введите имя и название компании\n" +
+				"3. После проверки вы увидите карточку\n\n" +
+				"\U0001f4a1 Используйте точное название как в документах HPE.",
+			ParseMode: models.ParseModeHTML,
 		})
 		return
 	}
+
+	// Typing indicator (4.2)
+	b.SendChatAction(ctx, &bot.SendChatActionParams{
+		ChatID: chatID, Action: models.ChatActionTyping,
+	})
 
 	partner, err := h.partnerRepo.GetByID(ctx, *user.PartnerID)
 	if err != nil {
 		slog.Error("partner-bot: get partner", "error", err, "partner_id", *user.PartnerID)
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: chatID,
-			Text:   "❌ Error loading partner data",
+			Text:   "\u274c Ошибка загрузки данных. Попробуйте позже.",
 		})
 		return
 	}
@@ -285,7 +359,7 @@ func (h *PartnerHandlers) onboardStepName(ctx context.Context, b *bot.Bot, chatI
 		return // ignore invalid
 	}
 
-	// Save name, advance to step 2
+	// Save name, advance to step 2 with progress bar (4.7)
 	h.userRepo.SetOnboardData(ctx, user.ID, "company", name, "", "")
 
 	// Edit the bot's onboarding message
@@ -293,9 +367,9 @@ func (h *PartnerHandlers) onboardStepName(ctx context.Context, b *bot.Bot, chatI
 		b.EditMessageText(ctx, &bot.EditMessageTextParams{
 			ChatID:    chatID,
 			MessageID: *user.OnboardMsgID,
-			Text: fmt.Sprintf("📝 <b>Шаг 2/3</b>\n"+
-				"✅ Имя: %s\n\n"+
-				"Введите название вашей компании:", name),
+			Text: fmt.Sprintf("\u2b1b\u2b1b\u2b1c <b>\u0428\u0430\u0433 2/3</b>\n"+
+				"\u2705 \u0418\u043c\u044f: %s\n\n"+
+				"\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0432\u0430\u0448\u0435\u0439 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u0438:\n\n<i>\u0414\u043b\u044f \u043e\u0442\u043c\u0435\u043d\u044b: /cancel</i>", name),
 			ParseMode: models.ParseModeHTML,
 		})
 	}
@@ -307,37 +381,104 @@ func (h *PartnerHandlers) onboardStepCompany(ctx context.Context, b *bot.Bot, ch
 		return
 	}
 
+	// Typing indicator (4.2)
+	b.SendChatAction(ctx, &bot.SendChatActionParams{
+		ChatID: chatID, Action: models.ChatActionTyping,
+	})
+
 	exists, err := h.partnerRepo.ExistsByName(ctx, company)
 	if err != nil {
 		slog.Error("partner-bot: check company exists", "error", err)
 	}
 
 	if !exists {
+		// Fuzzy search for suggestions (4.5)
+		suggestions, _ := h.partnerRepo.SearchByNameFuzzy(ctx, company)
+
+		var buttons [][]models.InlineKeyboardButton
+		for _, s := range suggestions {
+			buttons = append(buttons, []models.InlineKeyboardButton{
+				{Text: s, CallbackData: fmt.Sprintf("pcompany:%s", s)},
+			})
+		}
+
 		if user.OnboardMsgID != nil {
+			hint := ""
+			if len(suggestions) > 0 {
+				hint = "\n\n\U0001f4a1 Возможно, вы имели в виду:"
+			}
+
+			var markup *models.InlineKeyboardMarkup
+			if len(buttons) > 0 {
+				markup = &models.InlineKeyboardMarkup{InlineKeyboard: buttons}
+			}
+
 			b.EditMessageText(ctx, &bot.EditMessageTextParams{
 				ChatID:    chatID,
 				MessageID: *user.OnboardMsgID,
-				Text: fmt.Sprintf("📝 <b>Шаг 2/3</b>\n"+
-					"✅ Имя: %s\n\n"+
-					"❌ Компания <b>\"%s\"</b> не найдена в базе данных.\n"+
-					"Пожалуйста, введите точное юридическое название вашей компании (как в документах HPE):", user.FullName, company),
-				ParseMode: models.ParseModeHTML,
+				Text: fmt.Sprintf("\u2b1b\u2b1b\u2b1c <b>Шаг 2/3</b>\n"+
+					"\u2705 Имя: %s\n\n"+
+					"\u274c Компания <b>\"%s\"</b> не найдена в базе.%s\n\n"+
+					"<i>Введите точное юридическое название (как в документах HPE)\nДля отмены: /cancel</i>",
+					user.FullName, company, hint),
+				ParseMode:   models.ParseModeHTML,
+				ReplyMarkup: markup,
 			})
 		}
 		return
 	}
 
-	// Save company, advance to step 3
+	// Save company, advance to step 3 with progress bar (4.7)
 	h.userRepo.SetOnboardData(ctx, user.ID, "email", user.FullName, company, "")
 
 	if user.OnboardMsgID != nil {
 		b.EditMessageText(ctx, &bot.EditMessageTextParams{
 			ChatID:    chatID,
 			MessageID: *user.OnboardMsgID,
-			Text: fmt.Sprintf("📝 <b>Шаг 3/3</b>\n"+
-				"✅ Имя: %s\n"+
-				"✅ Компания: %s\n\n"+
-				"Введите вашу корпоративную email:", user.FullName, company),
+			Text: fmt.Sprintf("\u2b1b\u2b1b\u2b1b <b>Шаг 3/3</b>\n"+
+				"\u2705 Имя: %s\n"+
+				"\u2705 Компания: %s\n\n"+
+				"Введите вашу корпоративную email:\n\n"+
+				"<i>Для отмены: /cancel</i>", user.FullName, company),
+			ParseMode: models.ParseModeHTML,
+		})
+	}
+}
+
+// HandleCompanySelect handles inline button selection of a suggested company name (4.5).
+func (h *PartnerHandlers) HandleCompanySelect(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+
+	user := middleware.UserFromContext(ctx)
+	if user == nil || user.OnboardStep != "company" {
+		return
+	}
+
+	company := strings.TrimPrefix(update.CallbackQuery.Data, "pcompany:")
+	if company == "" {
+		return
+	}
+
+	// Accept the selected company
+	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+		Text:            "\u2705 " + company,
+	})
+
+	chatID := update.CallbackQuery.From.ID
+	h.userRepo.SetOnboardData(ctx, user.ID, "email", user.FullName, company, "")
+
+	if user.OnboardMsgID != nil {
+		b.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    chatID,
+			MessageID: *user.OnboardMsgID,
+			Text: fmt.Sprintf("\u2b1b\u2b1b\u2b1b <b>Шаг 3/3</b>\n"+
+				"\u2705 Имя: %s\n"+
+				"\u2705 Компания: %s\n\n"+
+				"Введите вашу корпоративную email:\n\n"+
+				"<i>Для отмены: /cancel</i>", user.FullName, company),
 			ParseMode: models.ParseModeHTML,
 		})
 	}

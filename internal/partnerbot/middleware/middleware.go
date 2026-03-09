@@ -65,8 +65,8 @@ func Auth(userRepo *storage.UserRepo, adminID int64) bot.Middleware {
 			lang := i18n.ParseLang(user.Lang)
 			ctx = context.WithValue(ctx, langCtxKey, lang)
 
-			// Allow /start for everyone (including pending — that's where onboarding begins)
-			if update.Message != nil && update.Message.Text == "/start" {
+				// Allow /start and /cancel for everyone (including pending and onboarding)
+			if update.Message != nil && (update.Message.Text == "/start" || update.Message.Text == "/cancel") {
 				ctx = context.WithValue(ctx, userCtxKey, user)
 				next(ctx, b, update)
 				return
