@@ -159,6 +159,22 @@ func (r *PartnerRepo) GetByID(ctx context.Context, id int) (*domain.Partner, err
 	return p, nil
 }
 
+// ExistsByName checks if a partner exists by exact or case-insensitive name match.
+func (r *PartnerRepo) ExistsByName(ctx context.Context, name string) (bool, error) {
+	var exists bool
+	// Check against name or global_entity_name
+	err := r.db.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM partners
+			WHERE name ILIKE $1 OR global_entity_name ILIKE $1
+		)
+	`, name).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check partner exists: %w", err)
+	}
+	return exists, nil
+}
+
 // UpsertFromParsed inserts or updates partners from parsed Excel data.
 // Returns (inserted, updated, error).
 func (r *PartnerRepo) UpsertFromParsed(ctx context.Context, partners map[string]*domain.Partner) (int, int, error) {

@@ -307,6 +307,26 @@ func (h *PartnerHandlers) onboardStepCompany(ctx context.Context, b *bot.Bot, ch
 		return
 	}
 
+	exists, err := h.partnerRepo.ExistsByName(ctx, company)
+	if err != nil {
+		slog.Error("partner-bot: check company exists", "error", err)
+	}
+
+	if !exists {
+		if user.OnboardMsgID != nil {
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    chatID,
+				MessageID: *user.OnboardMsgID,
+				Text: fmt.Sprintf("📝 <b>Шаг 2/3</b>\n"+
+					"✅ Имя: %s\n\n"+
+					"❌ Компания <b>\"%s\"</b> не найдена в базе данных.\n"+
+					"Пожалуйста, введите точное юридическое название вашей компании (как в документах HPE):", user.FullName, company),
+				ParseMode: models.ParseModeHTML,
+			})
+		}
+		return
+	}
+
 	// Save company, advance to step 3
 	h.userRepo.SetOnboardData(ctx, user.ID, "email", user.FullName, company, "")
 
