@@ -393,14 +393,28 @@ func (h *PartnerHandlers) onboardStepCompany(ctx context.Context, b *bot.Bot, ch
 
 	if !exists {
 		// Fuzzy search for suggestions (4.5)
-		suggestions, _ := h.partnerRepo.SearchByNameFuzzy(ctx, company)
+		suggestions, fuzzyErr := h.partnerRepo.SearchByNameFuzzy(ctx, company)
+		if fuzzyErr != nil {
+			slog.Error("partner-bot: fuzzy search failed", "error", fuzzyErr)
+		}
 
 		var buttons [][]models.InlineKeyboardButton
 		for _, s := range suggestions {
+			// Telegram callback_data max 64 bytes
+			cb := fmt.Sprintf("pcompany:%s", s)
+			if len(cb) > 64 {
+				cb = cb[:64]
+			}
 			buttons = append(buttons, []models.InlineKeyboardButton{
-				{Text: s, CallbackData: fmt.Sprintf("pcompany:%s", s)},
+				{Text: s, CallbackData: cb},
 			})
 		}
+
+		slog.Info("partner-bot: company not found",
+			"company", company,
+			"suggestions", len(suggestions),
+			"onboard_msg_id", user.OnboardMsgID,
+		)
 
 		if user.OnboardMsgID != nil {
 			hint := ""
@@ -413,7 +427,7 @@ func (h *PartnerHandlers) onboardStepCompany(ctx context.Context, b *bot.Bot, ch
 				markup = &models.InlineKeyboardMarkup{InlineKeyboard: buttons}
 			}
 
-			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+			_, editErr := b.EditMessageText(ctx, &bot.EditMessageTextParams{
 				ChatID:    chatID,
 				MessageID: *user.OnboardMsgID,
 				Text: fmt.Sprintf("\u2b1b\u2b1b\u2b1c <b>Шаг 2/3</b>\n"+
@@ -424,6 +438,11 @@ func (h *PartnerHandlers) onboardStepCompany(ctx context.Context, b *bot.Bot, ch
 				ParseMode:   models.ParseModeHTML,
 				ReplyMarkup: markup,
 			})
+			if editErr != nil {
+				slog.Error("partner-bot: edit message failed", "error", editErr, "msg_id", *user.OnboardMsgID)
+			}
+		} else {
+			slog.Warn("partner-bot: onboard_msg_id is nil, cannot edit message")
 		}
 		return
 	}
