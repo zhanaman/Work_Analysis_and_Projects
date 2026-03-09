@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
 )
@@ -22,7 +21,9 @@ func NewUserRepo(db *Postgres) *UserRepo {
 const userSelectCols = `id, telegram_id, username, full_name, role,
 	COALESCE(region_filter, ''), partner_id,
 	COALESCE(email, ''), COALESCE(email_verified, false),
-	COALESCE(lang, 'ru'), COALESCE(bot_type, 'pbm'), created_at`
+	COALESCE(lang, 'ru'), COALESCE(bot_type, 'pbm'),
+	COALESCE(onboard_step, ''), COALESCE(company_name, ''), onboard_msg_id,
+	created_at`
 
 // scanUser scans a row into a domain.User.
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*domain.User, error) {
@@ -31,7 +32,9 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*domain.User, error
 		&u.ID, &u.TelegramID, &u.Username, &u.FullName, &u.Role,
 		&u.RegionFilter, &u.PartnerID,
 		&u.Email, &u.EmailVerified,
-		&u.Lang, &u.BotType, &u.CreatedAt,
+		&u.Lang, &u.BotType,
+		&u.OnboardStep, &u.CompanyName, &u.OnboardMsgID,
+		&u.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -39,19 +42,19 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*domain.User, error
 	return u, nil
 }
 
-// GetOrCreate finds a user by Telegram ID, or creates one with "pending" role.
+// GetOrCreate finds a PBM user by (telegram_id, bot_type='pbm'), or creates one with "pending" role.
 // Returns the user and whether it was newly created.
 func (r *UserRepo) GetOrCreate(ctx context.Context, telegramID int64, username, fullName string) (*domain.User, bool, error) {
-	// Try to find existing
-	u, err := r.GetByTelegramID(ctx, telegramID)
+	// Try to find existing PBM user
+	u, err := r.GetByTelegramIDAndBotType(ctx, telegramID, "pbm")
 	if err == nil {
 		return u, false, nil
 	}
 
-	// Create new user
+	// Create new PBM user
 	sql := `
-		INSERT INTO users (telegram_id, username, full_name, role)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO users (telegram_id, username, full_name, role, bot_type)
+		VALUES ($1, $2, $3, $4, 'pbm')
 		RETURNING ` + userSelectCols
 	u, err = scanUser(r.db.Pool.QueryRow(ctx, sql, telegramID, username, fullName, domain.RolePending))
 	if err != nil {
@@ -111,15 +114,15 @@ func (r *UserRepo) GetByID(ctx context.Context, id int) (*domain.User, error) {
 	return u, nil
 }
 
-// SetRole updates a user's role.
-func (r *UserRepo) SetRole(ctx context.Context, telegramID int64, role domain.Role) error {
-	sql := `UPDATE users SET role = $1 WHERE telegram_id = $2`
-	tag, err := r.db.Pool.Exec(ctx, sql, role, telegramID)
+// SetRole updates a user's role by DB ID (safe: never touches other bot's record).
+func (r *UserRepo) SetRole(ctx context.Context, userID int, role domain.Role) error {
+	sql := `UPDATE users SET role = $1 WHERE id = $2`
+	tag, err := r.db.Pool.Exec(ctx, sql, role, userID)
 	if err != nil {
-		return fmt.Errorf("set role for %d: %w", telegramID, err)
+		return fmt.Errorf("set role for user %d: %w", userID, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("user with telegram_id %d not found", telegramID)
+		return fmt.Errorf("user with id %d not found", userID)
 	}
 	return nil
 }
@@ -144,10 +147,10 @@ func (r *UserRepo) ApprovePartner(ctx context.Context, userID int) error {
 	return nil
 }
 
-// SetLang updates a user's language preference.
-func (r *UserRepo) SetLang(ctx context.Context, telegramID int64, lang string) error {
-	sql := `UPDATE users SET lang = $1 WHERE telegram_id = $2`
-	_, err := r.db.Pool.Exec(ctx, sql, lang, telegramID)
+// SetLang updates a user's language preference by DB ID (safe: never touches other bot's record).
+func (r *UserRepo) SetLang(ctx context.Context, userID int, lang string) error {
+	sql := `UPDATE users SET lang = $1 WHERE id = $2`
+	_, err := r.db.Pool.Exec(ctx, sql, lang, userID)
 	return err
 }
 
@@ -197,44 +200,25 @@ func (r *UserRepo) ListPendingPartners(ctx context.Context) ([]domain.User, erro
 	return users, rows.Err()
 }
 
-// MatchPartnerByEmail tries to find partners whose name matches the email domain.
-// For example, email "ivan@kazproftech.kz" → search "kazproftech" in partners.name.
-func (r *UserRepo) MatchPartnerByEmail(ctx context.Context, email string) ([]struct {
-	ID   int
-	Name string
-}, error) {
-	// Extract domain part before TLD
-	parts := strings.Split(email, "@")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid email format")
-	}
-	domainParts := strings.Split(parts[1], ".")
-	if len(domainParts) == 0 {
-		return nil, fmt.Errorf("invalid email domain")
-	}
-	// Use the first part of domain as search term (e.g., "kazproftech" from "kazproftech.kz")
-	searchTerm := domainParts[0]
-
-	sql := `SELECT id, name FROM partners WHERE LOWER(name) LIKE '%' || LOWER($1) || '%' LIMIT 10`
-	rows, err := r.db.Pool.Query(ctx, sql, searchTerm)
-	if err != nil {
-		return nil, fmt.Errorf("match partner by email: %w", err)
-	}
-	defer rows.Close()
-
-	var results []struct {
-		ID   int
-		Name string
-	}
-	for rows.Next() {
-		var p struct {
-			ID   int
-			Name string
-		}
-		if err := rows.Scan(&p.ID, &p.Name); err != nil {
-			return nil, err
-		}
-		results = append(results, p)
-	}
-	return results, rows.Err()
+// SetOnboardData updates onboarding progress (step + optional full_name/company_name/email).
+func (r *UserRepo) SetOnboardData(ctx context.Context, userID int, step, fullName, companyName, email string) error {
+	sql := `UPDATE users SET onboard_step = $1, full_name = $2, company_name = $3, email = $4 WHERE id = $5`
+	_, err := r.db.Pool.Exec(ctx, sql, step, fullName, companyName, email, userID)
+	return err
 }
+
+// SetOnboardMsgID saves the bot message ID used for inline editing during onboarding.
+func (r *UserRepo) SetOnboardMsgID(ctx context.Context, userID int, msgID int) error {
+	sql := `UPDATE users SET onboard_msg_id = $1 WHERE id = $2`
+	_, err := r.db.Pool.Exec(ctx, sql, msgID, userID)
+	return err
+}
+
+// ResetOnboard clears onboarding state for re-registration (after reject).
+func (r *UserRepo) ResetOnboard(ctx context.Context, userID int) error {
+	sql := `UPDATE users SET onboard_step = '', full_name = '', company_name = '', email = '', 
+		onboard_msg_id = NULL, partner_id = NULL, email_verified = false, role = $1 WHERE id = $2`
+	_, err := r.db.Pool.Exec(ctx, sql, domain.RolePending, userID)
+	return err
+}
+

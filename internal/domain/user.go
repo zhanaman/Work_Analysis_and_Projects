@@ -25,6 +25,9 @@ type User struct {
 	EmailVerified bool      `json:"email_verified"`
 	Lang          string    `json:"lang"`            // "ru" | "en"
 	BotType       string    `json:"bot_type"`        // "pbm" | "partner"
+	OnboardStep   string    `json:"onboard_step"`    // "" | "name" | "company" | "email"
+	CompanyName   string    `json:"company_name"`    // Partner-entered company name
+	OnboardMsgID  *int      `json:"onboard_msg_id"`  // Bot message ID for inline editing
 	CreatedAt     time.Time `json:"created_at"`
 }
 

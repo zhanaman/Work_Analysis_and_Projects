@@ -79,14 +79,14 @@ func main() {
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypeExact, h.HandleStart)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/help", bot.MatchTypeExact, h.HandleHelp)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/status", bot.MatchTypeExact, h.HandleStatus)
-	b.RegisterHandler(bot.HandlerTypeMessageText, "/lang", bot.MatchTypeExact, h.HandleLang)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/lang", bot.MatchTypeExact, h.HandleLangCallback)
 
 	// Register callback handlers
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "pcard:", bot.MatchTypePrefix, h.HandleCardCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "lang:", bot.MatchTypePrefix, h.HandleLangCallback)
-	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "pickpartner:", bot.MatchTypePrefix, h.HandlePickPartner)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "papprove:", bot.MatchTypePrefix, h.HandleApproveCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "preject:", bot.MatchTypePrefix, h.HandleApproveCallback)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "prejectconfirm:", bot.MatchTypePrefix, h.HandleRejectConfirm)
 
 	// Register bot commands for the "/" menu
 	b.SetMyCommands(ctx, &bot.SetMyCommandsParams{

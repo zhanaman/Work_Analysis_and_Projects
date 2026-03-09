@@ -56,26 +56,24 @@ func Auth(userRepo *storage.UserRepo) bot.Middleware {
 			lang := i18n.ParseLang(user.Lang)
 			ctx = context.WithValue(ctx, langCtxKey, lang)
 
-			// Allow /start for everyone (including pending — that's where they enter email)
+			// Allow /start for everyone (including pending — that's where onboarding begins)
 			if update.Message != nil && update.Message.Text == "/start" {
 				ctx = context.WithValue(ctx, userCtxKey, user)
 				next(ctx, b, update)
 				return
 			}
 
-			// Pending without email — allow text messages through (for email input),
-			// block callbacks and other non-text updates
-			if user.Role == domain.RolePending && user.Email == "" {
+			// User is in an onboarding step — allow text messages through for input
+			if user.OnboardStep != "" {
 				if update.Message == nil || update.Message.Text == "" {
-					return // silently ignore non-text
+					return // silently ignore non-text during onboarding
 				}
-				// Allow text through to HandleDefaultMessage for email processing
 				ctx = context.WithValue(ctx, userCtxKey, user)
 				next(ctx, b, update)
 				return
 			}
 
-			// Block pending users who have filed a request
+			// Block pending users who have filed a request (waiting for admin)
 			if user.Role == domain.RolePending {
 				chatID := extractChatID(update)
 				if chatID != 0 {

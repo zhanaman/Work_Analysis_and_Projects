@@ -415,8 +415,19 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 		return
 	}
 
-	targetID, err := strconv.ParseInt(targetIDStr, 10, 64)
+	targetTgID, err := strconv.ParseInt(targetIDStr, 10, 64)
 	if err != nil {
+		return
+	}
+
+	// Look up PBM user by telegram_id to get DB ID
+	targetUser, err := h.userRepo.GetByTelegramIDAndBotType(ctx, targetTgID, "pbm")
+	if err != nil {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ Пользователь не найден",
+			ShowAlert:       true,
+		})
 		return
 	}
 
@@ -434,7 +445,7 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 		return
 	}
 
-	if err := h.userRepo.SetRole(ctx, targetID, newRole); err != nil {
+	if err := h.userRepo.SetRole(ctx, targetUser.ID, newRole); err != nil {
 		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 			CallbackQueryID: update.CallbackQuery.ID,
 			Text:            "❌ Ошибка: " + err.Error(),
@@ -449,7 +460,7 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 	})
 
 	b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: targetID,
+		ChatID: targetTgID,
 		Text:   "🎉 Ваш доступ к боту одобрен! Используйте /help для списка команд.",
 	})
 }
@@ -614,4 +625,109 @@ func (h *AdminHandler) chartConcentration(ctx context.Context) (string, string) 
 		"Top 3 partners control %.1f%% of total volume.", top3Pct)
 
 	return url, caption
+}
+
+// HandlePartnerApproval handles admin approval/rejection of partner bot users.
+// Callback format: "papprove:123" or "preject:123" where 123 is the partner user's DB ID.
+func (h *AdminHandler) HandlePartnerApproval(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+
+	// Only admins can approve
+	user := middleware.UserFromContext(ctx)
+	if user == nil || !user.IsAdmin() {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ Access denied",
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	data := update.CallbackQuery.Data
+	isApprove := strings.HasPrefix(data, "papprove:")
+
+	var prefix string
+	if isApprove {
+		prefix = "papprove:"
+	} else {
+		prefix = "preject:"
+	}
+
+	userIDStr := strings.TrimPrefix(data, prefix)
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		return
+	}
+
+	// Load the partner user
+	partnerUser, err := h.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ User not found",
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	if isApprove {
+		if err := h.userRepo.ApprovePartner(ctx, userID); err != nil {
+			b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+				CallbackQueryID: update.CallbackQuery.ID,
+				Text:            "❌ Error: " + err.Error(),
+				ShowAlert:       true,
+			})
+			return
+		}
+
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "✅ Partner approved!",
+		})
+
+		// Update admin message
+		if update.CallbackQuery.Message.Message != nil {
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID: update.CallbackQuery.Message.Message.ID,
+				Text: fmt.Sprintf("✅ <b>Approved</b>\n\n👤 %s (@%s)\n📧 %s\n🏢 Partner ID: %d",
+					partnerUser.FullName, partnerUser.Username, partnerUser.Email, safePartnerID(partnerUser.PartnerID)),
+				ParseMode: models.ParseModeHTML,
+			})
+		}
+	} else {
+		// Reject — clear partner link, keep pending
+		if err := h.userRepo.SetRole(ctx, userID, domain.RolePending); err != nil {
+			b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+				CallbackQueryID: update.CallbackQuery.ID,
+				Text:            "❌ Error: " + err.Error(),
+				ShowAlert:       true,
+			})
+			return
+		}
+
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ Partner rejected",
+		})
+
+		if update.CallbackQuery.Message.Message != nil {
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID: update.CallbackQuery.Message.Message.ID,
+				Text: fmt.Sprintf("❌ <b>Rejected</b>\n\n👤 %s (@%s)\n📧 %s",
+					partnerUser.FullName, partnerUser.Username, partnerUser.Email),
+				ParseMode: models.ParseModeHTML,
+			})
+		}
+	}
+}
+
+func safePartnerID(pid *int) int {
+	if pid == nil {
+		return 0
+	}
+	return *pid
 }
