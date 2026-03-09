@@ -10,6 +10,16 @@ services:
     volumes:
       - ./data:/app/data  # For Excel file uploads
 
+  partner-bot:
+    build: .
+    container_name: pbm-partner-portal
+    command: ["/app/partner-bot"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     container_name: pbm-postgres
@@ -23,6 +33,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations/002_redesign.up.sql:/docker-entrypoint-initdb.d/001_schema.sql
+      - ./migrations/003_partner_bot.up.sql:/docker-entrypoint-initdb.d/002_partner_bot.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pbm -d pbm_partners"]
       interval: 5s

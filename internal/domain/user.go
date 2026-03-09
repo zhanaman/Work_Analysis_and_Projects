@@ -14,13 +14,18 @@ const (
 
 // User represents a Telegram user registered with the bot.
 type User struct {
-	ID           int       `json:"id"`
-	TelegramID   int64     `json:"telegram_id"`
-	Username     string    `json:"username"`
-	FullName     string    `json:"full_name"`
-	Role         Role      `json:"role"`
-	RegionFilter string    `json:"region_filter"` // "" = all CCA, "RMC" = RMC only
-	CreatedAt    time.Time `json:"created_at"`
+	ID            int       `json:"id"`
+	TelegramID    int64     `json:"telegram_id"`
+	Username      string    `json:"username"`
+	FullName      string    `json:"full_name"`
+	Role          Role      `json:"role"`
+	RegionFilter  string    `json:"region_filter"`   // "" = all CCA, "RMC" = RMC only
+	PartnerID     *int      `json:"partner_id"`      // NULL for PBM/admin, set for partner users
+	Email         string    `json:"email"`
+	EmailVerified bool      `json:"email_verified"`
+	Lang          string    `json:"lang"`            // "ru" | "en"
+	BotType       string    `json:"bot_type"`        // "pbm" | "partner"
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // IsAuthorized returns true if the user has at least "user" access.
