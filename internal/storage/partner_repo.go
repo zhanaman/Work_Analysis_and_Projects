@@ -178,10 +178,10 @@ func (r *PartnerRepo) ExistsByName(ctx context.Context, name string) (bool, erro
 // SearchByNameFuzzy returns up to 5 similar partner names for suggestions.
 func (r *PartnerRepo) SearchByNameFuzzy(ctx context.Context, query string) ([]string, error) {
 	rows, err := r.db.Pool.Query(ctx, `
-		SELECT DISTINCT name FROM partners
+		SELECT DISTINCT name, similarity(name, $1) AS sim FROM partners
 		WHERE name ILIKE '%' || $1 || '%'
 		   OR global_entity_name ILIKE '%' || $1 || '%'
-		ORDER BY similarity(name, $1) DESC
+		ORDER BY sim DESC
 		LIMIT 5
 	`, query)
 	if err != nil {
@@ -192,7 +192,8 @@ func (r *PartnerRepo) SearchByNameFuzzy(ctx context.Context, query string) ([]st
 	var names []string
 	for rows.Next() {
 		var n string
-		if err := rows.Scan(&n); err != nil {
+		var sim float64
+		if err := rows.Scan(&n, &sim); err != nil {
 			return nil, err
 		}
 		names = append(names, n)

@@ -422,22 +422,29 @@ func (h *PartnerHandlers) onboardStepCompany(ctx context.Context, b *bot.Bot, ch
 				hint = "\n\n\U0001f4a1 Возможно, вы имели в виду:"
 			}
 
-			var markup *models.InlineKeyboardMarkup
-			if len(buttons) > 0 {
-				markup = &models.InlineKeyboardMarkup{InlineKeyboard: buttons}
-			}
+			msgText := fmt.Sprintf("\u2b1b\u2b1b\u2b1c <b>Шаг 2/3</b>\n"+
+				"\u2705 Имя: %s\n\n"+
+				"\u274c Компания <b>\"%s\"</b> не найдена в базе.%s\n\n"+
+				"<i>Введите точное юридическое название (как в документах HPE)\nДля отмены: /cancel</i>",
+				user.FullName, company, hint)
 
-			_, editErr := b.EditMessageText(ctx, &bot.EditMessageTextParams{
-				ChatID:    chatID,
-				MessageID: *user.OnboardMsgID,
-				Text: fmt.Sprintf("\u2b1b\u2b1b\u2b1c <b>Шаг 2/3</b>\n"+
-					"\u2705 Имя: %s\n\n"+
-					"\u274c Компания <b>\"%s\"</b> не найдена в базе.%s\n\n"+
-					"<i>Введите точное юридическое название (как в документах HPE)\nДля отмены: /cancel</i>",
-					user.FullName, company, hint),
-				ParseMode:   models.ParseModeHTML,
-				ReplyMarkup: markup,
-			})
+			var editErr error
+			if len(buttons) > 0 {
+				_, editErr = b.EditMessageText(ctx, &bot.EditMessageTextParams{
+					ChatID:    chatID,
+					MessageID: *user.OnboardMsgID,
+					Text:      msgText,
+					ParseMode: models.ParseModeHTML,
+					ReplyMarkup: &models.InlineKeyboardMarkup{InlineKeyboard: buttons},
+				})
+			} else {
+				_, editErr = b.EditMessageText(ctx, &bot.EditMessageTextParams{
+					ChatID:    chatID,
+					MessageID: *user.OnboardMsgID,
+					Text:      msgText,
+					ParseMode: models.ParseModeHTML,
+				})
+			}
 			if editErr != nil {
 				slog.Error("partner-bot: edit message failed", "error", editErr, "msg_id", *user.OnboardMsgID)
 			}
