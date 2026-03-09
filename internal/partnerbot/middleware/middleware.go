@@ -63,15 +63,15 @@ func Auth(userRepo *storage.UserRepo) bot.Middleware {
 				return
 			}
 
-			// Block pending users who haven't linked their email yet
+			// Pending without email — allow text messages through (for email input),
+			// block callbacks and other non-text updates
 			if user.Role == domain.RolePending && user.Email == "" {
-				chatID := extractChatID(update)
-				if chatID != 0 {
-					b.SendMessage(ctx, &bot.SendMessageParams{
-						ChatID: chatID,
-						Text:   i18n.T("welcome", lang),
-					})
+				if update.Message == nil || update.Message.Text == "" {
+					return // silently ignore non-text
 				}
+				// Allow text through to HandleDefaultMessage for email processing
+				ctx = context.WithValue(ctx, userCtxKey, user)
+				next(ctx, b, update)
 				return
 			}
 
