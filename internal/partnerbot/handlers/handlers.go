@@ -425,7 +425,7 @@ func (h *PartnerHandlers) onboardStepCompany(ctx context.Context, b *bot.Bot, ch
 			msgText := fmt.Sprintf("\u2b1b\u2b1b\u2b1c <b>Шаг 2/3</b>\n"+
 				"\u2705 Имя: %s\n\n"+
 				"\u274c Компания <b>\"%s\"</b> не найдена в базе.%s\n\n"+
-				"<i>Введите точное юридическое название (как в документах HPE)\nДля отмены: /cancel</i>",
+				"<i>Введите точное юридическое название (как при регистрации в системах HPE)\nДля отмены: /cancel</i>",
 				user.FullName, company, hint)
 
 			var editErr error
