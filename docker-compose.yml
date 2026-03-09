@@ -13,7 +13,7 @@ services:
   partner-bot:
     build: .
     container_name: pbm-partner-portal
-    command: ["/app/partner-bot"]
+    entrypoint: ["/app/partner-bot"]
     env_file: .env
     depends_on:
       postgres:
