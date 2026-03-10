@@ -3,52 +3,64 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"html"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/bot/middleware"
+	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
+	"github.com/anonimouskz/pbm-partner-bot/internal/rbac"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 )
 
-// Start handles the /start command.
+// Start handles the /start command for authorized users.
 func Start(ctx context.Context, b *bot.Bot, update *models.Update) {
 	user := middleware.UserFromContext(ctx)
-
-	var text string
 	if user == nil || !user.IsAuthorized() {
-		text = "👋 Добро пожаловать в *HPE Partner Advisor*\\!\n\n" +
-			"Ваш запрос на доступ отправлен администратору\\.\n" +
-			"Ожидайте подтверждения\\."
-	} else {
-		text = fmt.Sprintf("👋 Привет, *%s*\\!\n\n"+
-			"Я помогу быстро найти информацию по любому партнёру\\.\n\n"+
-			"📋 *Команды:*\n"+
-			"/search `<имя>` — поиск партнёра\n"+
-			"/help — справка\n"+
-			"/stats — статистика по базе",
-			escapeMarkdownV2(user.FullName),
-		)
+		return
 	}
+
+	text := fmt.Sprintf("👋 Привет, <b>%s</b>!\n\n"+
+		"Я помогу быстро найти информацию по любому партнёру.\n\n",
+		html.EscapeString(user.FullName))
+
+	text += buildCommandList(user)
 
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    update.Message.Chat.ID,
 		Text:      text,
-		ParseMode: models.ParseModeMarkdown,
+		ParseMode: models.ParseModeHTML,
 	})
 }
 
-// Help handles the /help command.
+// Help handles the /help command — shows only accessible commands.
 func Help(ctx context.Context, b *bot.Bot, update *models.Update) {
-	text := "📖 *HPE Partner Advisor — Справка*\n\n" +
-		"🔍 /search `<имя>` — поиск партнёра по имени\n" +
-		"📊 /stats — статистика по базе партнёров\n" +
-		"ℹ️ /help — эта справка\n\n" +
-		"_Просто напишите имя партнёра, и я найду его\\!_"
+	user := middleware.UserFromContext(ctx)
+
+	text := "📖 <b>HPE Partner Advisor — Справка</b>\n\n"
+	text += buildCommandList(user)
+	text += "\n<i>Просто напишите имя партнёра, и я найду его!</i>"
 
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    update.Message.Chat.ID,
 		Text:      text,
-		ParseMode: models.ParseModeMarkdown,
+		ParseMode: models.ParseModeHTML,
 	})
+}
+
+// buildCommandList returns HTML-formatted list of commands the user has access to.
+func buildCommandList(user *domain.User) string {
+	text := "📋 <b>Команды:</b>\n"
+	text += "🔍 /search <code>&lt;имя&gt;</code> — поиск партнёра\n"
+	text += "ℹ️ /help — справка\n"
+
+	if rbac.Can(user, rbac.ViewStats) {
+		text += "📊 /stats — аналитика CCA\n"
+	}
+	if rbac.Can(user, rbac.ManageUsers) {
+		text += "👥 /users — управление пользователями\n"
+	}
+
+	return text
 }
 
 // escapeMarkdownV2 escapes special characters for Telegram MarkdownV2.
