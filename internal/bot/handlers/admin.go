@@ -465,7 +465,7 @@ func (h *AdminHandler) HandleUsers(ctx context.Context, b *bot.Bot, update *mode
 			text += fmt.Sprintf("• %s (📧 %s)\n", u.FullName, email)
 			tgIDStr := strconv.FormatInt(u.TelegramID, 10)
 			rows = append(rows, []models.InlineKeyboardButton{
-				{Text: "✅ User", CallbackData: "approve:" + tgIDStr},
+				{Text: "🏢 Partner", CallbackData: "approve:" + tgIDStr},
 				{Text: "👔 PBM", CallbackData: "role_pbm:" + tgIDStr},
 				{Text: "📦 Distri", CallbackData: "role_distri:" + tgIDStr},
 				{Text: "❌ Отклонить", CallbackData: "reject:" + tgIDStr},
@@ -564,7 +564,7 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 	switch action {
 	case "approve":
 		newRole = domain.RoleUser
-		responseText = "✅ Пользователь одобрен (User)"
+		responseText = "🏢 Одобрен (Partner)"
 		userMsg = "🎉 Ваш доступ к боту одобрен! Используйте /help для списка команд."
 	case "pbm":
 		// Validate @hpe.com email
@@ -699,7 +699,7 @@ func (h *AdminHandler) HandleRoleChangeMenu(ctx context.Context, b *bot.Bot, upd
 			ReplyMarkup: &models.InlineKeyboardMarkup{
 				InlineKeyboard: [][]models.InlineKeyboardButton{
 					{
-						{Text: "✅ User", CallbackData: "chset:" + tgIDStr + ":user"},
+						{Text: "🏢 Partner", CallbackData: "chset:" + tgIDStr + ":user"},
 						{Text: "👔 PBM", CallbackData: "chset:" + tgIDStr + ":pbm"},
 						{Text: "📦 Distri", CallbackData: "chset:" + tgIDStr + ":distri"},
 					},
@@ -1402,7 +1402,7 @@ func roleEmoji(role domain.Role) string {
 	case domain.RoleDistri:
 		return "📦 Distri"
 	case domain.RoleUser:
-		return "✅ User"
+		return "🏢 Partner"
 	default:
 		return string(role)
 	}

@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
 	"github.com/anonimouskz/pbm-partner-bot/internal/storage"
@@ -72,14 +73,21 @@ func Auth(userRepo *storage.UserRepo, adminID int64) bot.Middleware {
 				return
 			}
 
-			// Users in onboarding — allow text messages through
+			// Users in onboarding — allow text messages and onboard callbacks through
 			if user.OnboardStep != "" {
-				if update.Message == nil || update.Message.Text == "" {
-					return // silently ignore non-text during onboarding
+				// Allow callbacks (inline buttons during onboarding)
+				if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "onboard_role:") {
+					ctx = context.WithValue(ctx, userCtxKey, user)
+					next(ctx, b, update)
+					return
 				}
-				ctx = context.WithValue(ctx, userCtxKey, user)
-				next(ctx, b, update)
-				return
+				// Allow text messages
+				if update.Message != nil && update.Message.Text != "" {
+					ctx = context.WithValue(ctx, userCtxKey, user)
+					next(ctx, b, update)
+					return
+				}
+				return // silently ignore other update types
 			}
 
 			// Block rejected users permanently
