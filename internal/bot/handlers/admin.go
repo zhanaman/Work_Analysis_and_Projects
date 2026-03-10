@@ -563,6 +563,13 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 		Text:            responseText,
 	})
 
+	// Update per-user Telegram "/" menu based on new role
+	targetUser.Role = newRole // update in-memory for correct menu
+	b.SetMyCommands(ctx, &bot.SetMyCommandsParams{
+		Commands: rbac.TelegramCommandsForUser(targetUser),
+		Scope:    &models.BotCommandScopeChat{ChatID: targetTgID},
+	})
+
 	// Edit the admin message to remove buttons and show result
 	if update.CallbackQuery.Message.Message != nil {
 		// For PBM: show region selection instead of final message

@@ -6,7 +6,6 @@ import (
 	"html"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/bot/middleware"
-	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
 	"github.com/anonimouskz/pbm-partner-bot/internal/rbac"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -23,7 +22,7 @@ func Start(ctx context.Context, b *bot.Bot, update *models.Update) {
 		"Я помогу быстро найти информацию по любому партнёру.\n\n",
 		html.EscapeString(user.FullName))
 
-	text += buildCommandList(user)
+	text += rbac.HelpTextForUser(user)
 
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    update.Message.Chat.ID,
@@ -37,7 +36,7 @@ func Help(ctx context.Context, b *bot.Bot, update *models.Update) {
 	user := middleware.UserFromContext(ctx)
 
 	text := "📖 <b>HPE Partner Advisor — Справка</b>\n\n"
-	text += buildCommandList(user)
+	text += rbac.HelpTextForUser(user)
 	text += "\n<i>Просто напишите имя партнёра, и я найду его!</i>"
 
 	b.SendMessage(ctx, &bot.SendMessageParams{
@@ -45,22 +44,6 @@ func Help(ctx context.Context, b *bot.Bot, update *models.Update) {
 		Text:      text,
 		ParseMode: models.ParseModeHTML,
 	})
-}
-
-// buildCommandList returns HTML-formatted list of commands the user has access to.
-func buildCommandList(user *domain.User) string {
-	text := "📋 <b>Команды:</b>\n"
-	text += "🔍 /search <code>&lt;имя&gt;</code> — поиск партнёра\n"
-	text += "ℹ️ /help — справка\n"
-
-	if rbac.Can(user, rbac.ViewStats) {
-		text += "📊 /stats — аналитика CCA\n"
-	}
-	if rbac.Can(user, rbac.ManageUsers) {
-		text += "👥 /users — управление пользователями\n"
-	}
-
-	return text
 }
 
 // escapeMarkdownV2 escapes special characters for Telegram MarkdownV2.

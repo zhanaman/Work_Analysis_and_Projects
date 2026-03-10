@@ -9,6 +9,7 @@ import (
 	mw "github.com/anonimouskz/pbm-partner-bot/internal/bot/middleware"
 	"github.com/anonimouskz/pbm-partner-bot/internal/config"
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
+	"github.com/anonimouskz/pbm-partner-bot/internal/rbac"
 	"github.com/anonimouskz/pbm-partner-bot/internal/storage"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -67,14 +68,10 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "prejectconfirm:", bot.MatchTypePrefix, adminHandler.HandlePartnerRejectConfirm)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "region:", bot.MatchTypePrefix, adminHandler.HandleRegionCallback)
 
-	// Register bot commands for the "/" menu
+	// Register bot commands for the "/" menu (default = admin view)
+	adminUser := &domain.User{Role: domain.RoleAdmin}
 	b.SetMyCommands(ctx, &bot.SetMyCommandsParams{
-		Commands: []models.BotCommand{
-			{Command: "search", Description: "🔍 Поиск партнёра по имени"},
-			{Command: "stats", Description: "📊 Аналитика CCA"},
-			{Command: "users", Description: "👥 Управление пользователями"},
-			{Command: "help", Description: "❓ Список команд"},
-		},
+		Commands: rbac.TelegramCommandsForUser(adminUser),
 	})
 
 	slog.Info("bot started, listening for updates...")
