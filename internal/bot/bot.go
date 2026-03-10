@@ -8,6 +8,7 @@ import (
 	"github.com/anonimouskz/pbm-partner-bot/internal/bot/handlers"
 	mw "github.com/anonimouskz/pbm-partner-bot/internal/bot/middleware"
 	"github.com/anonimouskz/pbm-partner-bot/internal/config"
+	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
 	"github.com/anonimouskz/pbm-partner-bot/internal/storage"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -24,6 +25,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	searchHandler := handlers.NewSearchHandler(partnerRepo)
 	partnerHandler := handlers.NewPartnerHandler(partnerRepo)
 	adminHandler := handlers.NewAdminHandler(userRepo, partnerRepo, partnerBotToken)
+	onboardHandler := handlers.NewOnboardingHandler(userRepo, cfg.AdminTelegramID)
 
 	// Create bot options
 	opts := []bot.Option{
@@ -31,7 +33,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 			mw.Logging(),
 			mw.Auth(userRepo, cfg.AdminTelegramID),
 		),
-		bot.WithDefaultHandler(makeDefaultHandler(searchHandler, adminHandler)),
+		bot.WithDefaultHandler(makeDefaultHandler(searchHandler, adminHandler, onboardHandler)),
 	}
 
 	// Initialize bot
@@ -41,7 +43,8 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	}
 
 	// Register command handlers
-	b.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypeExact, handlers.Start)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypeExact, makeStartHandler(onboardHandler))
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/cancel", bot.MatchTypeExact, makeCancelHandler(userRepo))
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/help", bot.MatchTypeExact, handlers.Help)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/search", bot.MatchTypePrefix, searchHandler.Handle)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/stats", bot.MatchTypeExact, adminHandler.HandleStats)
@@ -62,6 +65,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "pdistri:", bot.MatchTypePrefix, adminHandler.HandlePartnerApproval)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "preject:", bot.MatchTypePrefix, adminHandler.HandlePartnerApproval)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "prejectconfirm:", bot.MatchTypePrefix, adminHandler.HandlePartnerRejectConfirm)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "region:", bot.MatchTypePrefix, adminHandler.HandleRegionCallback)
 
 	// Register bot commands for the "/" menu
 	b.SetMyCommands(ctx, &bot.SetMyCommandsParams{
@@ -79,10 +83,54 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	return nil
 }
 
-// makeDefaultHandler creates a handler that forwards non-command text to search.
-func makeDefaultHandler(searchHandler *handlers.SearchHandler, adminHandler *handlers.AdminHandler) bot.HandlerFunc {
+// makeStartHandler creates a /start handler that triggers onboarding for new users.
+func makeStartHandler(onboardHandler *handlers.OnboardingHandler) bot.HandlerFunc {
+	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		user := mw.UserFromContext(ctx)
+		if user == nil {
+			return
+		}
+
+		// If user is in onboarding or new → start/restart onboarding
+		if user.OnboardStep != "" || (!user.IsAuthorized() && user.Role == domain.RolePending) {
+			onboardHandler.StartOnboarding(ctx, b, update.Message.Chat.ID, user.ID)
+			return
+		}
+
+		// Authorized user — show normal start
+		handlers.Start(ctx, b, update)
+	}
+}
+
+// makeCancelHandler creates a /cancel handler that resets onboarding.
+func makeCancelHandler(userRepo *storage.UserRepo) bot.HandlerFunc {
+	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
+		user := mw.UserFromContext(ctx)
+		if user == nil {
+			return
+		}
+		if user.OnboardStep != "" {
+			userRepo.ResetOnboard(ctx, user.ID)
+			b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.Message.Chat.ID,
+				Text:   "🚫 Регистрация отменена. Нажмите /start чтобы начать заново.",
+			})
+		}
+	}
+}
+
+// makeDefaultHandler creates a handler that routes onboarding messages or forwards to search.
+func makeDefaultHandler(searchHandler *handlers.SearchHandler, adminHandler *handlers.AdminHandler, onboardHandler *handlers.OnboardingHandler) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if update.Message == nil || update.Message.Text == "" {
+			return
+		}
+
+		user := mw.UserFromContext(ctx)
+
+		// Route onboarding messages
+		if user != nil && user.OnboardStep != "" {
+			onboardHandler.HandleOnboardingMessage(ctx, b, update)
 			return
 		}
 

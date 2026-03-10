@@ -527,6 +527,15 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 		responseText = "✅ Пользователь одобрен (User)"
 		userMsg = "🎉 Ваш доступ к боту одобрен! Используйте /help для списка команд."
 	case "pbm":
+		// Validate @hpe.com email
+		if !strings.HasSuffix(strings.ToLower(targetUser.Email), "@hpe.com") {
+			b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+				CallbackQueryID: update.CallbackQuery.ID,
+				Text:            "❌ PBM доступен только для @hpe.com (email: " + targetUser.Email + ")",
+				ShowAlert:       true,
+			})
+			return
+		}
 		newRole = domain.RolePBM
 		responseText = "👔 Назначен PBM"
 		userMsg = "🎉 Вы назначены как PBM! Используйте /help для списка команд."
@@ -556,19 +565,115 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 
 	// Edit the admin message to remove buttons and show result
 	if update.CallbackQuery.Message.Message != nil {
-		b.EditMessageText(ctx, &bot.EditMessageTextParams{
-			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
-			MessageID: update.CallbackQuery.Message.Message.ID,
-			Text: fmt.Sprintf("%s\n\n👤 %s (@%s)",
-				responseText, targetUser.FullName, targetUser.Username),
-			ParseMode: models.ParseModeHTML,
-		})
+		// For PBM: show region selection instead of final message
+		if action == "pbm" {
+			userDBIDStr := strconv.Itoa(targetUser.ID)
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID: update.CallbackQuery.Message.Message.ID,
+				Text: fmt.Sprintf("👔 <b>PBM: %s</b>\nВыберите регион:",
+					targetUser.FullName),
+				ParseMode: models.ParseModeHTML,
+				ReplyMarkup: &models.InlineKeyboardMarkup{
+					InlineKeyboard: [][]models.InlineKeyboardButton{
+						{{Text: "🌍 RMC (все кроме KZ, KG)", CallbackData: "region:" + userDBIDStr + ":RMC"}},
+						{
+							{Text: "🇦🇿 Azerbaijan", CallbackData: "region:" + userDBIDStr + ":Azerbaijan"},
+							{Text: "🇺🇿 Uzbekistan", CallbackData: "region:" + userDBIDStr + ":Uzbekistan"},
+						},
+						{
+							{Text: "🇹🇲 Turkmenistan", CallbackData: "region:" + userDBIDStr + ":Turkmenistan"},
+							{Text: "🇬🇪 Georgia", CallbackData: "region:" + userDBIDStr + ":Georgia"},
+						},
+						{
+							{Text: "🇦🇲 Armenia", CallbackData: "region:" + userDBIDStr + ":Armenia"},
+							{Text: "🇹🇯 Tajikistan", CallbackData: "region:" + userDBIDStr + ":Tajikistan"},
+						},
+					},
+				},
+			})
+		} else {
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID: update.CallbackQuery.Message.Message.ID,
+				Text: fmt.Sprintf("%s\n\n👤 %s (@%s)",
+					responseText, targetUser.FullName, targetUser.Username),
+				ParseMode: models.ParseModeHTML,
+			})
+		}
 	}
 
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: targetTgID,
 		Text:   userMsg,
 	})
+}
+
+// HandleRegionCallback handles region selection for PBM users.
+// Callback format: region:<user_db_id>:<filter> e.g. region:5:RMC
+func (h *AdminHandler) HandleRegionCallback(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+
+	user := middleware.UserFromContext(ctx)
+	if !rbac.Can(user, rbac.ManageUsers) {
+		return
+	}
+
+	data := update.CallbackQuery.Data
+	// Parse region:<userID>:<filter>
+	parts := strings.SplitN(strings.TrimPrefix(data, "region:"), ":", 2)
+	if len(parts) != 2 {
+		return
+	}
+
+	userID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return
+	}
+	regionFilter := parts[1]
+
+	// Validate region
+	validRegions := map[string]bool{
+		"RMC": true, "Azerbaijan": true, "Uzbekistan": true,
+		"Turkmenistan": true, "Georgia": true, "Armenia": true, "Tajikistan": true,
+	}
+	if !validRegions[regionFilter] {
+		return
+	}
+
+	if err := h.userRepo.SetRegionFilter(ctx, userID, regionFilter); err != nil {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ Ошибка: " + err.Error(),
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	targetUser, _ := h.userRepo.GetByID(ctx, userID)
+
+	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+		Text:            "✅ Регион установлен: " + regionFilter,
+	})
+
+	if update.CallbackQuery.Message.Message != nil {
+		name := regionFilter
+		if targetUser != nil {
+			name = targetUser.FullName
+		}
+		b.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+			MessageID: update.CallbackQuery.Message.Message.ID,
+			Text: fmt.Sprintf("✅ <b>PBM назначен</b>\n\n"+
+				"👤 %s\n"+
+				"🌍 Регион: %s",
+				name, regionFilter),
+			ParseMode: models.ParseModeHTML,
+		})
+	}
 }
 
 // HandleChartCallback sends chart images based on callback data.

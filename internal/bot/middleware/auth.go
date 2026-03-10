@@ -2,8 +2,6 @@ package middleware
 
 import (
 	"context"
-	"fmt"
-	"html"
 	"log/slog"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
@@ -24,15 +22,15 @@ func UserFromContext(ctx context.Context) *domain.User {
 }
 
 // Auth creates a middleware that loads the user from DB and injects it into context.
-// Pending users get a "waiting for approval" message.
-// Unknown users are auto-registered with "pending" role.
+// New users start onboarding (onboard_step="name").
+// Pending users (who completed onboarding) get "waiting for approval" message.
+// Users in onboarding steps get their text messages passed through.
 func Auth(userRepo *storage.UserRepo, adminID int64) bot.Middleware {
 	return func(next bot.HandlerFunc) bot.HandlerFunc {
 		return func(ctx context.Context, b *bot.Bot, update *models.Update) {
 			// Extract telegram user from update
 			tgUser := extractTelegramUser(update)
 			if tgUser == nil {
-				// No user info — skip auth (e.g., channel posts)
 				next(ctx, b, update)
 				return
 			}
@@ -53,30 +51,47 @@ func Auth(userRepo *storage.UserRepo, adminID int64) bot.Middleware {
 				user.Role = domain.RoleAdmin
 			}
 
-			// Notify admin about new user registrations
+			// New non-admin users: start onboarding
 			if isNew && tgUser.ID != adminID {
 				slog.Info("new user registered",
 					"telegram_id", tgUser.ID,
 					"username", tgUser.Username,
 					"full_name", fullName(tgUser),
 				)
-				notifyAdminNewUser(ctx, b, adminID, tgUser)
+				// Set onboard_step to "name" to trigger onboarding flow
+				if err := userRepo.SetOnboardData(ctx, user.ID, "name", "", "", ""); err != nil {
+					slog.Error("auth middleware: set onboard step", "error", err)
+				}
+				user.OnboardStep = "name"
 			}
 
-			// Block pending users (except /start)
-			if user.Role == domain.RolePending {
-				if update.Message != nil && update.Message.Text == "/start" {
-					// Allow /start to go through for pending users
-				} else {
-					chatID := extractChatID(update)
-					if chatID != 0 {
-						b.SendMessage(ctx, &bot.SendMessageParams{
-							ChatID: chatID,
-							Text:   "⏳ Ваш запрос на доступ ожидает одобрения администратора.",
-						})
-					}
-					return
+			// Allow /start and /cancel for everyone (including pending and onboarding)
+			if update.Message != nil && (update.Message.Text == "/start" || update.Message.Text == "/cancel") {
+				ctx = context.WithValue(ctx, userCtxKey, user)
+				next(ctx, b, update)
+				return
+			}
+
+			// Users in onboarding — allow text messages through
+			if user.OnboardStep != "" {
+				if update.Message == nil || update.Message.Text == "" {
+					return // silently ignore non-text during onboarding
 				}
+				ctx = context.WithValue(ctx, userCtxKey, user)
+				next(ctx, b, update)
+				return
+			}
+
+			// Block pending users who have completed onboarding (waiting for admin)
+			if user.Role == domain.RolePending {
+				chatID := extractChatID(update)
+				if chatID != 0 {
+					b.SendMessage(ctx, &bot.SendMessageParams{
+						ChatID: chatID,
+						Text:   "⏳ Ваш запрос на доступ ожидает одобрения администратора.",
+					})
+				}
+				return
 			}
 
 			// Inject user into context
@@ -114,34 +129,4 @@ func fullName(u *models.User) string {
 		name += " " + u.LastName
 	}
 	return name
-}
-
-func notifyAdminNewUser(ctx context.Context, b *bot.Bot, adminID int64, u *models.User) {
-	tgIDStr := fmt.Sprintf("%d", u.ID)
-	text := fmt.Sprintf(
-		"\U0001f195 <b>Новый пользователь запрашивает доступ:</b>\n\n"+
-			"\U0001f464 %s\n"+
-			"\U0001f517 @%s\n"+
-			"\U0001f194 <code>%s</code>\n\n"+
-			"Выберите роль:",
-		html.EscapeString(fullName(u)),
-		html.EscapeString(u.Username),
-		tgIDStr,
-	)
-
-	b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:    adminID,
-		Text:      text,
-		ParseMode: models.ParseModeHTML,
-		ReplyMarkup: &models.InlineKeyboardMarkup{
-			InlineKeyboard: [][]models.InlineKeyboardButton{
-				{
-					{Text: "✅ User", CallbackData: "approve:" + tgIDStr},
-					{Text: "👔 PBM", CallbackData: "role_pbm:" + tgIDStr},
-					{Text: "📦 Distri", CallbackData: "role_distri:" + tgIDStr},
-					{Text: "❌ Отклонить", CallbackData: "reject:" + tgIDStr},
-				},
-			},
-		},
-	})
 }
