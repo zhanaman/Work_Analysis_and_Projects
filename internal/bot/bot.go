@@ -57,6 +57,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 
 	// Partner approval callbacks (sent via PBM bot token from partner-bot)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "papprove:", bot.MatchTypePrefix, adminHandler.HandlePartnerApproval)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "pdistri:", bot.MatchTypePrefix, adminHandler.HandlePartnerApproval)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "preject:", bot.MatchTypePrefix, adminHandler.HandlePartnerApproval)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "prejectconfirm:", bot.MatchTypePrefix, adminHandler.HandlePartnerRejectConfirm)
 

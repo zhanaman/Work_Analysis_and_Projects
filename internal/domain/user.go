@@ -8,6 +8,7 @@ type Role string
 const (
 	RolePending Role = "pending" // Awaiting admin approval
 	RoleUser    Role = "user"    // Approved user (future: partner self-service)
+	RoleDistri  Role = "distri"  // Distributor — sees sub-partner cards
 	RolePBM     Role = "pbm"    // PBM colleague (e.g. Daulet — RMC only)
 	RoleAdmin   Role = "admin"  // Full access (all CCA)
 )
@@ -33,7 +34,7 @@ type User struct {
 
 // IsAuthorized returns true if the user has at least "user" access.
 func (u *User) IsAuthorized() bool {
-	return u.Role == RoleUser || u.Role == RolePBM || u.Role == RoleAdmin
+	return u.Role == RoleUser || u.Role == RoleDistri || u.Role == RolePBM || u.Role == RoleAdmin
 }
 
 // IsAdmin returns true if the user has admin access.
@@ -44,6 +45,11 @@ func (u *User) IsAdmin() bool {
 // IsPBM returns true if the user is a PBM or admin.
 func (u *User) IsPBM() bool {
 	return u.Role == RolePBM || u.Role == RoleAdmin
+}
+
+// IsDistri returns true if the user is a distributor.
+func (u *User) IsDistri() bool {
+	return u.Role == RoleDistri
 }
 
 // CCACountries returns the list of CCA countries for filtering.

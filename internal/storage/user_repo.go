@@ -147,6 +147,16 @@ func (r *UserRepo) ApprovePartner(ctx context.Context, userID int) error {
 	return nil
 }
 
+// ApproveDistri sets a partner user to distributor status.
+func (r *UserRepo) ApproveDistri(ctx context.Context, userID int) error {
+	sql := `UPDATE users SET role = $1, email_verified = true WHERE id = $2`
+	_, err := r.db.Pool.Exec(ctx, sql, domain.RoleDistri, userID)
+	if err != nil {
+		return fmt.Errorf("approve distri user %d: %w", userID, err)
+	}
+	return nil
+}
+
 // SetLang updates a user's language preference by DB ID (safe: never touches other bot's record).
 func (r *UserRepo) SetLang(ctx context.Context, userID int, lang string) error {
 	sql := `UPDATE users SET lang = $1 WHERE id = $2`

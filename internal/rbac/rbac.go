@@ -12,19 +12,21 @@ import "github.com/anonimouskz/pbm-partner-bot/internal/domain"
 type Permission string
 
 const (
-	SearchPartners Permission = "search:partners"  // /search + text search
-	ViewStats      Permission = "view:stats"        // /stats + stats:* callbacks
-	ViewCharts     Permission = "view:charts"       // chart:* callbacks
-	ManageUsers    Permission = "manage:users"      // /users + approve/reject
-	ViewOwnCard    Permission = "view:own_card"     // Partner: /status
+	SearchPartners  Permission = "search:partners"    // /search + text search
+	ViewStats       Permission = "view:stats"          // /stats + stats:* callbacks
+	ViewCharts      Permission = "view:charts"         // chart:* callbacks
+	ManageUsers     Permission = "manage:users"        // /users + approve/reject
+	ViewOwnCard     Permission = "view:own_card"       // Partner: /status
+	ViewSubPartners Permission = "view:sub_partners"   // Distri: see partner cards
 )
 
 // RolePermissions maps each role to its allowed permissions.
 // Edit this map to grant/revoke capabilities for any role.
 var RolePermissions = map[domain.Role][]Permission{
-	domain.RoleAdmin: {SearchPartners, ViewStats, ViewCharts, ManageUsers},
-	domain.RolePBM:   {SearchPartners},
-	domain.RoleUser:  {SearchPartners},
+	domain.RoleAdmin:  {SearchPartners, ViewStats, ViewCharts, ManageUsers},
+	domain.RolePBM:    {SearchPartners},
+	domain.RoleUser:   {SearchPartners},
+	domain.RoleDistri: {ViewOwnCard, ViewSubPartners, SearchPartners},
 	// Partner bot users use ViewOwnCard but are checked in partner-bot middleware
 }
 

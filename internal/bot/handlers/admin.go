@@ -727,11 +727,15 @@ func (h *AdminHandler) HandlePartnerApproval(ctx context.Context, b *bot.Bot, up
 
 	data := update.CallbackQuery.Data
 	isApprove := strings.HasPrefix(data, "papprove:")
+	isDistri := strings.HasPrefix(data, "pdistri:")
 
 	var prefix string
-	if isApprove {
+	switch {
+	case isApprove:
 		prefix = "papprove:"
-	} else {
+	case isDistri:
+		prefix = "pdistri:"
+	default:
 		prefix = "preject:"
 	}
 
@@ -751,11 +755,21 @@ func (h *AdminHandler) HandlePartnerApproval(ctx context.Context, b *bot.Bot, up
 		return
 	}
 
-	if isApprove {
-		if err := h.userRepo.ApprovePartner(ctx, userID); err != nil {
+	if isApprove || isDistri {
+		var approveErr error
+		var roleLabel string
+		if isDistri {
+			approveErr = h.userRepo.ApproveDistri(ctx, userID)
+			roleLabel = "📦 Distri"
+		} else {
+			approveErr = h.userRepo.ApprovePartner(ctx, userID)
+			roleLabel = "✅ Partner"
+		}
+
+		if approveErr != nil {
 			b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 				CallbackQueryID: update.CallbackQuery.ID,
-				Text:            "❌ Error: " + err.Error(),
+				Text:            "❌ Error: " + approveErr.Error(),
 				ShowAlert:       true,
 			})
 			return
@@ -763,7 +777,7 @@ func (h *AdminHandler) HandlePartnerApproval(ctx context.Context, b *bot.Bot, up
 
 		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 			CallbackQueryID: update.CallbackQuery.ID,
-			Text:            "✅ Approved!",
+			Text:            roleLabel + " Approved!",
 		})
 
 		// Edit admin message (PBM bot's own message)
@@ -771,9 +785,9 @@ func (h *AdminHandler) HandlePartnerApproval(ctx context.Context, b *bot.Bot, up
 			b.EditMessageText(ctx, &bot.EditMessageTextParams{
 				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
 				MessageID: update.CallbackQuery.Message.Message.ID,
-				Text: fmt.Sprintf("✅ <b>Одобрено</b>\n\n"+
+				Text: fmt.Sprintf("%s <b>Одобрено</b>\n\n"+
 					"👤 %s\n🏢 %s\n📧 %s",
-					partnerUser.FullName, partnerUser.CompanyName, partnerUser.Email),
+					roleLabel, partnerUser.FullName, partnerUser.CompanyName, partnerUser.Email),
 				ParseMode: models.ParseModeHTML,
 			})
 		}

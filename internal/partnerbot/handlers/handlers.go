@@ -572,7 +572,8 @@ func (h *PartnerHandlers) notifyAdminPartnerRequest(ctx context.Context, b *bot.
 		ReplyMarkup: &tgapi.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgapi.InlineKeyboardButton{
 				{
-					{Text: "\u2705 Approve", CallbackData: fmt.Sprintf("papprove:%d", user.ID)},
+					{Text: "\u2705 Partner", CallbackData: fmt.Sprintf("papprove:%d", user.ID)},
+					{Text: "\U0001f4e6 Distri", CallbackData: fmt.Sprintf("pdistri:%d", user.ID)},
 					{Text: "\u274c Reject", CallbackData: fmt.Sprintf("preject:%d", user.ID)},
 				},
 			},
