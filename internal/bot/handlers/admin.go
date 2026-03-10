@@ -540,10 +540,17 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 		Text:            responseText,
 	})
 
-	b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: targetTgID,
-		Text:   "🎉 Ваш доступ к боту одобрен! Используйте /help для списка команд.",
-	})
+	if action == "approve" {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: targetTgID,
+			Text:   "🎉 Ваш доступ к боту одобрен! Используйте /help для списка команд.",
+		})
+	} else {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: targetTgID,
+			Text:   "❌ Ваш запрос на доступ отклонён.",
+		})
+	}
 }
 
 // HandleChartCallback sends chart images based on callback data.
