@@ -68,6 +68,13 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "prejectconfirm:", bot.MatchTypePrefix, adminHandler.HandlePartnerRejectConfirm)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "region:", bot.MatchTypePrefix, adminHandler.HandleRegionCallback)
 
+	// Active user management callbacks
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "chrole:", bot.MatchTypePrefix, adminHandler.HandleRoleChangeMenu)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "chset:", bot.MatchTypePrefix, adminHandler.HandleRoleChangeApply)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "revokeyes:", bot.MatchTypePrefix, adminHandler.HandleRevokeCallback)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "revokeno:", bot.MatchTypePrefix, adminHandler.HandleRevokeCancelCallback)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "revoke:", bot.MatchTypePrefix, adminHandler.HandleRevokeCallback)
+
 	// Register bot commands for the "/" menu
 	// Default (all users) = minimal commands (search + help)
 	defaultUser := &domain.User{Role: domain.RoleUser}

@@ -487,25 +487,27 @@ func (h *AdminHandler) HandleUsers(ctx context.Context, b *bot.Bot, update *mode
 				email = "@" + u.Username
 			}
 			text += fmt.Sprintf("• %s (%s) — %s%s\n", u.FullName, email, roleIcon, region)
+
+			// Skip management buttons for admin
+			if u.Role == domain.RoleAdmin {
+				continue
+			}
+			tgIDStr := strconv.FormatInt(u.TelegramID, 10)
+			rows = append(rows, []models.InlineKeyboardButton{
+				{Text: "✏️ " + u.FullName, CallbackData: "chrole:" + tgIDStr},
+				{Text: "🚫 Отозвать", CallbackData: "revoke:" + tgIDStr},
+			})
 		}
 	}
 
-	if len(rows) > 0 {
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID:    update.Message.Chat.ID,
-			Text:      text,
-			ParseMode: models.ParseModeHTML,
-			ReplyMarkup: &models.InlineKeyboardMarkup{
-				InlineKeyboard: rows,
-			},
-		})
-	} else {
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID:    update.Message.Chat.ID,
-			Text:      text,
-			ParseMode: models.ParseModeHTML,
-		})
-	}
+	b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID:    update.Message.Chat.ID,
+		Text:      text,
+		ParseMode: models.ParseModeHTML,
+		ReplyMarkup: &models.InlineKeyboardMarkup{
+			InlineKeyboard: rows,
+		},
+	})
 }
 
 // HandleApproveCallback processes approve/reject callbacks.
@@ -654,6 +656,318 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 		ChatID: targetTgID,
 		Text:   userMsg,
 	})
+}
+
+// HandleRoleChangeMenu shows role selection inline keyboard for an active user.
+// Callback format: chrole:<telegram_id>
+func (h *AdminHandler) HandleRoleChangeMenu(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+	user := middleware.UserFromContext(ctx)
+	if !rbac.Can(user, rbac.ManageUsers) {
+		return
+	}
+
+	tgIDStr := strings.TrimPrefix(update.CallbackQuery.Data, "chrole:")
+	targetTgID, err := strconv.ParseInt(tgIDStr, 10, 64)
+	if err != nil {
+		return
+	}
+
+	targetUser, err := h.userRepo.GetByTelegramIDAndBotType(ctx, targetTgID, "pbm")
+	if err != nil {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ Пользователь не найден",
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+	})
+
+	if update.CallbackQuery.Message.Message != nil {
+		b.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+			MessageID: update.CallbackQuery.Message.Message.ID,
+			Text: fmt.Sprintf("✏️ <b>Сменить роль: %s</b>\n📧 %s\nТекущая: %s\n\nВыберите новую роль:",
+				targetUser.FullName, targetUser.Email, roleEmoji(targetUser.Role)),
+			ParseMode: models.ParseModeHTML,
+			ReplyMarkup: &models.InlineKeyboardMarkup{
+				InlineKeyboard: [][]models.InlineKeyboardButton{
+					{
+						{Text: "✅ User", CallbackData: "chset:" + tgIDStr + ":user"},
+						{Text: "👔 PBM", CallbackData: "chset:" + tgIDStr + ":pbm"},
+						{Text: "📦 Distri", CallbackData: "chset:" + tgIDStr + ":distri"},
+					},
+				},
+			},
+		})
+	}
+}
+
+// HandleRoleChangeApply applies a role change for an active user.
+// Callback format: chset:<telegram_id>:<role>
+func (h *AdminHandler) HandleRoleChangeApply(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+	user := middleware.UserFromContext(ctx)
+	if !rbac.Can(user, rbac.ManageUsers) {
+		return
+	}
+
+	data := strings.TrimPrefix(update.CallbackQuery.Data, "chset:")
+	parts := strings.SplitN(data, ":", 2)
+	if len(parts) != 2 {
+		return
+	}
+
+	targetTgID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return
+	}
+	roleStr := parts[1]
+
+	targetUser, err := h.userRepo.GetByTelegramIDAndBotType(ctx, targetTgID, "pbm")
+	if err != nil {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ Пользователь не найден",
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	// Protect admin from role changes
+	if targetUser.Role == domain.RoleAdmin {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "🚫 Нельзя изменить роль администратора",
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	var newRole domain.Role
+	switch roleStr {
+	case "user":
+		newRole = domain.RoleUser
+	case "pbm":
+		if !strings.HasSuffix(strings.ToLower(targetUser.Email), "@hpe.com") {
+			b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+				CallbackQueryID: update.CallbackQuery.ID,
+				Text:            "❌ PBM только для @hpe.com (email: " + targetUser.Email + ")",
+				ShowAlert:       true,
+			})
+			return
+		}
+		newRole = domain.RolePBM
+	case "distri":
+		newRole = domain.RoleDistri
+	default:
+		return
+	}
+
+	if err := h.userRepo.SetRole(ctx, targetUser.ID, newRole); err != nil {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ Ошибка: " + err.Error(),
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	// Update per-user Telegram menu
+	targetUser.Role = newRole
+	b.SetMyCommands(ctx, &bot.SetMyCommandsParams{
+		Commands: rbac.TelegramCommandsForUser(targetUser),
+		Scope:    &models.BotCommandScopeChat{ChatID: targetTgID},
+	})
+
+	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+		Text:            "✅ Роль изменена: " + roleEmoji(newRole),
+	})
+
+	// Edit admin message to confirm
+	if update.CallbackQuery.Message.Message != nil {
+		// For PBM: show region selection
+		if roleStr == "pbm" {
+			userDBIDStr := strconv.Itoa(targetUser.ID)
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID: update.CallbackQuery.Message.Message.ID,
+				Text: fmt.Sprintf("👔 <b>PBM: %s</b>\nВыберите регион:",
+					targetUser.FullName),
+				ParseMode: models.ParseModeHTML,
+				ReplyMarkup: &models.InlineKeyboardMarkup{
+					InlineKeyboard: [][]models.InlineKeyboardButton{
+						{{Text: "🌍 RMC (все кроме KZ, KG)", CallbackData: "region:" + userDBIDStr + ":RMC"}},
+						{
+							{Text: "🇦🇿 Azerbaijan", CallbackData: "region:" + userDBIDStr + ":Azerbaijan"},
+							{Text: "🇺🇿 Uzbekistan", CallbackData: "region:" + userDBIDStr + ":Uzbekistan"},
+						},
+						{
+							{Text: "🇹🇲 Turkmenistan", CallbackData: "region:" + userDBIDStr + ":Turkmenistan"},
+							{Text: "🇬🇪 Georgia", CallbackData: "region:" + userDBIDStr + ":Georgia"},
+						},
+						{
+							{Text: "🇦🇲 Armenia", CallbackData: "region:" + userDBIDStr + ":Armenia"},
+							{Text: "🇹🇯 Tajikistan", CallbackData: "region:" + userDBIDStr + ":Tajikistan"},
+						},
+					},
+				},
+			})
+		} else {
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID: update.CallbackQuery.Message.Message.ID,
+				Text: fmt.Sprintf("✅ Роль изменена\n\n👤 %s → %s",
+					targetUser.FullName, roleEmoji(newRole)),
+				ParseMode: models.ParseModeHTML,
+			})
+		}
+	}
+
+	// Notify user
+	b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: targetTgID,
+		Text:   "🔄 Ваша роль изменена: " + roleEmoji(newRole) + "\nНажмите /help для списка команд.",
+	})
+}
+
+// HandleRevokeCallback handles revoke access for active users.
+// Callback format: revoke:<telegram_id> (confirm) or revokeyes:<telegram_id> (execute)
+func (h *AdminHandler) HandleRevokeCallback(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+	user := middleware.UserFromContext(ctx)
+	if !rbac.Can(user, rbac.ManageUsers) {
+		return
+	}
+
+	data := update.CallbackQuery.Data
+	isConfirm := strings.HasPrefix(data, "revokeyes:")
+
+	var tgIDStr string
+	if isConfirm {
+		tgIDStr = strings.TrimPrefix(data, "revokeyes:")
+	} else {
+		tgIDStr = strings.TrimPrefix(data, "revoke:")
+	}
+
+	targetTgID, err := strconv.ParseInt(tgIDStr, 10, 64)
+	if err != nil {
+		return
+	}
+
+	targetUser, err := h.userRepo.GetByTelegramIDAndBotType(ctx, targetTgID, "pbm")
+	if err != nil {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ Пользователь не найден",
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	// Protect admin from revocation
+	if targetUser.Role == domain.RoleAdmin {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "🚫 Нельзя отозвать доступ администратора",
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	if !isConfirm {
+		// Show confirmation
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+		})
+
+		if update.CallbackQuery.Message.Message != nil {
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+				MessageID: update.CallbackQuery.Message.Message.ID,
+				Text: fmt.Sprintf("⚠️ <b>Отозвать доступ?</b>\n\n"+
+					"👤 %s\n📧 %s\nРоль: %s\n\n"+
+					"Пользователь будет заблокирован и сможет подать запрос повторно через /start.",
+					targetUser.FullName, targetUser.Email, roleEmoji(targetUser.Role)),
+				ParseMode: models.ParseModeHTML,
+				ReplyMarkup: &models.InlineKeyboardMarkup{
+					InlineKeyboard: [][]models.InlineKeyboardButton{
+						{
+							{Text: "✅ Да, отозвать", CallbackData: "revokeyes:" + tgIDStr},
+							{Text: "❌ Отмена", CallbackData: "revokeno:" + tgIDStr},
+						},
+					},
+				},
+			})
+		}
+		return
+	}
+
+	// Execute revoke
+	h.userRepo.ResetOnboard(ctx, targetUser.ID)
+	if err := h.userRepo.SetRole(ctx, targetUser.ID, domain.RoleRejected); err != nil {
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "❌ Ошибка: " + err.Error(),
+			ShowAlert:       true,
+		})
+		return
+	}
+
+	// Clear Telegram menu for revoked user
+	b.DeleteMyCommands(ctx, &bot.DeleteMyCommandsParams{
+		Scope: &models.BotCommandScopeChat{ChatID: targetTgID},
+	})
+
+	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+		Text:            "🚫 Доступ отозван",
+	})
+
+	if update.CallbackQuery.Message.Message != nil {
+		b.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+			MessageID: update.CallbackQuery.Message.Message.ID,
+			Text: fmt.Sprintf("🚫 <b>Доступ отозван</b>\n\n👤 %s (@%s)",
+				targetUser.FullName, targetUser.Username),
+			ParseMode: models.ParseModeHTML,
+		})
+	}
+
+	// Notify user
+	b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: targetTgID,
+		Text:   "🚫 Ваш доступ отозван.\nНажмите /start чтобы подать запрос повторно.",
+	})
+}
+
+// HandleRevokeCancelCallback handles the cancel button on revoke confirmation.
+func (h *AdminHandler) HandleRevokeCancelCallback(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+		Text:            "Отменено",
+	})
+	if update.CallbackQuery.Message.Message != nil {
+		b.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+			MessageID: update.CallbackQuery.Message.Message.ID,
+			Text:      "❌ Отмена — доступ не изменён.",
+		})
+	}
 }
 
 // HandleRegionCallback handles region selection for PBM users.
