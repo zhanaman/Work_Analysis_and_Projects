@@ -66,6 +66,12 @@ func (h *OnboardingHandler) HandleOnboardingMessage(ctx context.Context, b *bot.
 
 // StartOnboarding sends the initial onboarding message (Step 1: Name).
 func (h *OnboardingHandler) StartOnboarding(ctx context.Context, b *bot.Bot, chatID int64, userID int) {
+	// Set onboard_step in DB so middleware routes next message to onboarding
+	if err := h.userRepo.SetOnboardData(ctx, userID, "name", "", "", ""); err != nil {
+		slog.Error("onboard: set step name", "error", err)
+		return
+	}
+
 	msg, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: chatID,
 		Text: "👋 <b>Добро пожаловать в HPE Partner Advisor!</b>\n\n" +
