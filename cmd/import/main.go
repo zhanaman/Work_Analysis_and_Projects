@@ -58,6 +58,26 @@ func main() {
 		"duration", result.Duration,
 	)
 
+	// Print diagnostics (missing columns/sheets)
+	if len(result.Diagnostics) > 0 {
+		fmt.Fprintf(os.Stderr, "\n╔══════════════════════════════════════════════════════╗\n")
+		fmt.Fprintf(os.Stderr, "║  ⚠️  ДИАГНОСТИКА EXCEL: %d проблем(а)                ║\n", len(result.Diagnostics))
+		fmt.Fprintf(os.Stderr, "╚══════════════════════════════════════════════════════╝\n\n")
+		for i, d := range result.Diagnostics {
+			fmt.Fprintf(os.Stderr, "%d. %s\n\n", i+1, d)
+		}
+		fmt.Fprintf(os.Stderr, "────────────────────────────────────────────────────────\n")
+		fmt.Fprintf(os.Stderr, "Если колонки переименованы — обновите mapper.go\n")
+		fmt.Fprintf(os.Stderr, "Если это новый FY — обновите кварталы в mapCompLevelsFromRow()\n\n")
+	}
+
+	// Critical check: no partners at all
+	if len(result.Partners) == 0 {
+		slog.Error("CRITICAL: 0 партнёров после парсинга — структура Excel вероятно изменилась")
+		fmt.Fprintf(os.Stderr, "❌ КРИТИЧЕСКАЯ ОШИБКА: 0 партнёров. Импорт остановлен.\n")
+		os.Exit(1)
+	}
+
 	// Print sample partners
 	count := 0
 	for _, partner := range result.Partners {

@@ -19,13 +19,14 @@ type ParseResult struct {
 	SheetsParsed []string
 	RefreshDate  string // extracted from "Refresh_date" column in Excel
 	Duration     time.Duration
+	Diagnostics  []string // warnings about missing columns/sheets
 }
 
 // ExcelParser reads partner data from an HPE Excel file.
 type ExcelParser struct {
-	filePath     string
-	filterCCA    bool // if true, only include CCA partners
-	configs      []CenterConfig
+	filePath  string
+	filterCCA bool // if true, only include CCA partners
+	configs   []CenterConfig
 }
 
 // NewExcelParser creates a new parser for the given file.
@@ -67,7 +68,9 @@ func (p *ExcelParser) Parse() (*ParseResult, error) {
 			}
 		}
 		if !found {
-			slog.Warn("sheet not found, skipping", "sheet", cfg.SheetName)
+			diag := fmt.Sprintf("⚠️  ЛИСТ НЕ НАЙДЕН: %q — ожидался, но отсутствует в файле. Имеющиеся листы: %v\n   FIX: проверьте что лист %q не переименован в новом файле", cfg.SheetName, sheets, cfg.SheetName)
+			result.Diagnostics = append(result.Diagnostics, diag)
+			slog.Warn("sheet not found, skipping", "sheet", cfg.SheetName, "available", sheets)
 			continue
 		}
 
@@ -81,6 +84,7 @@ func (p *ExcelParser) Parse() (*ParseResult, error) {
 		result.TotalRows += parsed.totalRows
 		result.CCARows += parsed.ccaRows
 		result.SkippedRows += parsed.skippedRows
+		result.Diagnostics = append(result.Diagnostics, parsed.diagnostics...)
 
 		// Take refresh date from the first sheet that has it
 		if result.RefreshDate == "" && parsed.refreshDate != "" {
@@ -130,6 +134,7 @@ type sheetParseResult struct {
 	ccaRows     int
 	skippedRows int
 	refreshDate string
+	diagnostics []string
 }
 
 // parseSheet parses a single center sheet.
@@ -164,8 +169,12 @@ func (p *ExcelParser) parseSheet(f *excelize.File, cfg CenterConfig) (*sheetPars
 	cm := buildColumnMap(headerRow)
 	slog.Debug("column map built", "sheet", cfg.SheetName, "columns", len(cm)/2) // /2 because we store both cases
 
+	// Validate critical columns exist
+	diags := validateColumns(cm, cfg)
+
 	result := &sheetParseResult{
-		partners: make(map[string]*domain.Partner),
+		partners:    make(map[string]*domain.Partner),
+		diagnostics: diags,
 	}
 
 	// Extract refresh date from header columns

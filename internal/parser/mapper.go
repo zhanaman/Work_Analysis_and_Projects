@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
@@ -76,9 +77,9 @@ var partnerColumns = struct {
 	HPEOrg            string
 	Country           string
 	CountryCode       string
-	HQPartnerIDT1    string
-	HQPartnerIDT2    string
-	HQPartnerIDSP    string
+	HQPartnerIDT1     string
+	HQPartnerIDT2     string
+	HQPartnerIDSP     string
 	PartyID           string
 	PartyName         string
 	CountryEntityID   string
@@ -104,9 +105,9 @@ var partnerColumns = struct {
 	HPEOrg:            "HPE Organization",
 	Country:           "Country",
 	CountryCode:       "Party Country Code",
-	HQPartnerIDT1:    "HQ Partner ID (T1 Solution Provider)",
-	HQPartnerIDT2:    "HQ Partner ID (T2 Solution Provider)",
-	HQPartnerIDSP:    "HQ Partner ID (Service Provider)",
+	HQPartnerIDT1:     "HQ Partner ID (T1 Solution Provider)",
+	HQPartnerIDT2:     "HQ Partner ID (T2 Solution Provider)",
+	HQPartnerIDSP:     "HQ Partner ID (Service Provider)",
 	PartyID:           "Signing Entity Party ID",
 	PartyName:         "Party Name",
 	CountryEntityID:   "Country Entity ID",
@@ -131,41 +132,41 @@ var partnerColumns = struct {
 // tierColumnTemplate defines the column name pattern for tier data.
 // Use fmt.Sprintf with (prefix, tierName) to build column names.
 type tierColumnTemplate struct {
-	CriteriaMet       string // "%s %s Criteria Met"
-	TierStartDate     string // "%s %s Final (start date)"
-	TierEndDate       string // "%s %s Final (end date)" or "%s %s final (end date)"
-	VolumeStatus      string // "%s %s Volume Status"
-	GrowthPlanStatus  string // "%s %s Growth Plan Status" (or "Satus" for Gold typo)
-	GrowthPlanEnd     string // "%s %s Growth Plan (end date)"
-	VolumeActuals     string // "%s %s Volume Actuals ($)"
-	VolumeActualsAlt  string // "%s %s Volume Actuals (Rolling 36 Months)" (BP only)
+	CriteriaMet        string // "%s %s Criteria Met"
+	TierStartDate      string // "%s %s Final (start date)"
+	TierEndDate        string // "%s %s Final (end date)" or "%s %s final (end date)"
+	VolumeStatus       string // "%s %s Volume Status"
+	GrowthPlanStatus   string // "%s %s Growth Plan Status" (or "Satus" for Gold typo)
+	GrowthPlanEnd      string // "%s %s Growth Plan (end date)"
+	VolumeActuals      string // "%s %s Volume Actuals ($)"
+	VolumeActualsAlt   string // "%s %s Volume Actuals (Rolling 36 Months)" (BP only)
 	VolumeActualsTotal string
-	Threshold         string // "%s %s Threshold ($)"
-	VolumePct         string // "%s %s Volume Actuals / Threshold (Percentage)"
+	Threshold          string // "%s %s Threshold ($)"
+	VolumePct          string // "%s %s Volume Actuals / Threshold (Percentage)"
 	// Alt name for volume pct (no space before "Volume" in some columns)
-	VolumePctAlt      string
+	VolumePctAlt string
 
 	// SRI (Gold/Platinum only)
-	SRIStatus    string
-	SRI          string
-	SRIRequired  string
-	SRIPct       string
+	SRIStatus   string
+	SRI         string
+	SRIRequired string
+	SRIPct      string
 
 	// Certifications
-	CertStatus      string
-	SalesCertified  string
-	ATPCurrent      string
-	ATPActive       string
-	ATPAtRisk       string
-	ATPNotCurrent   string
-	ASECurrent      string
-	ASEActive       string
-	ASEAtRisk       string
-	ASENotCurrent   string
-	MASECurrent     string
-	MASEActive      string
-	MASEAtRisk      string
-	MASENotCurrent  string
+	CertStatus     string
+	SalesCertified string
+	ATPCurrent     string
+	ATPActive      string
+	ATPAtRisk      string
+	ATPNotCurrent  string
+	ASECurrent     string
+	ASEActive      string
+	ASEAtRisk      string
+	ASENotCurrent  string
+	MASECurrent    string
+	MASEActive     string
+	MASEAtRisk     string
+	MASENotCurrent string
 }
 
 // buildTierColumnName creates the expected column header for a given center prefix and tier.
@@ -192,9 +193,9 @@ func mapPartnerFromRow(row []string, cm columnMap) domain.Partner {
 		HPEOrg:               cm.get(row, pc.HPEOrg),
 		Country:              cm.get(row, pc.Country),
 		CountryCode:          cm.get(row, pc.CountryCode),
-		HQPartnerIDT1:       cm.get(row, pc.HQPartnerIDT1),
-		HQPartnerIDT2:       cm.get(row, pc.HQPartnerIDT2),
-		HQPartnerIDSP:       cm.get(row, pc.HQPartnerIDSP),
+		HQPartnerIDT1:        cm.get(row, pc.HQPartnerIDT1),
+		HQPartnerIDT2:        cm.get(row, pc.HQPartnerIDT2),
+		HQPartnerIDSP:        cm.get(row, pc.HQPartnerIDSP),
 		CountryEntityID:      cm.get(row, pc.CountryEntityID),
 		CountryEntityName:    cm.get(row, pc.CountryEntityName),
 		GlobalEntityID:       cm.get(row, pc.GlobalEntityID),
@@ -236,9 +237,9 @@ func mapTierFromRow(row []string, cm columnMap, prefix string, tier domain.Tier)
 		GrowthPlanEnd:    col("Growth Plan (end date)"),
 		CertStatus:       parseBool(col("Certification Status")),
 
-		VolumeActuals:      parseMoney(col("Volume Actuals ($)")),
-		Threshold:          parseMoney(col("Threshold ($)")),
-		VolumePct:          parsePct(col("Volume Actuals / Threshold (Percentage)")),
+		VolumeActuals: parseMoney(col("Volume Actuals ($)")),
+		Threshold:     parseMoney(col("Threshold ($)")),
+		VolumePct:     parsePct(col("Volume Actuals / Threshold (Percentage)")),
 
 		SalesCertified: col("Sales"),
 		ATPCurrent:     col("ATP - CURRENT"),
@@ -291,32 +292,32 @@ func mapTierFromRow(row []string, cm columnMap, prefix string, tier domain.Tier)
 // mapCompetenciesFromRow extracts all 14 competency flags from a row.
 func mapCompetenciesFromRow(row []string, cm columnMap) []domain.PartnerCompetency {
 	competencyColumns := map[string]string{
-		"HPE HPC for Enterprise":                                "HPE HPC for Enterprise Competency Criteria Met",
-		"HPE Solutions for Cloud IT Ops":                        "HPE Solutions for Cloud IT Ops Competency Criteria Met",
-		"HPE Data Protection and Disaster Recovery Solutions":   "HPE Data Protection and Disaster Recovery Solutions Competency Criteria Met",
-		"HPE Private Cloud Solutions for Business":              "HPE Private Cloud Solutions for Business Competency Criteria Met",
-		"HPE GreenLake":                                         "HPE GreenLake Competency Criteria Met",
-		"HPE Solutions for AI":                                  "HPE Solutions for AI Competency Criteria Met",
-		"HPE Solutions for Sovereign Cloud":                     "HPE Solutions for Sovereign Cloud Competency Criteria Met",
-		"HPE Solutions for Sustainability":                      "HPE Solutions for Sustainability Competency Criteria Met",
-		"HPE Aruba Networking Central":                          "HPE Networking Central Criteria Met",
-		"HPE Aruba Networking SD-WAN":                           "HPE Networking SD-WAN Criteria Met",
-		"HPE Aruba Networking Secure Service Edge":              "HPE Networking Secure Service Edge Criteria Met",
-		"HPE Aruba Networking Data Center":                      "HPE Networking Data Center Competency Criteria Met",
-		"HPE Aruba Networking ClearPass":                        "HPE Networking ClearPass Competency Criteria Met",
-		"HPE Aruba Networking Private 5G":                       "HPE Networking Private 5G Competency Criteria Met",
+		"HPE HPC for Enterprise":                              "HPE HPC for Enterprise Competency Criteria Met",
+		"HPE Solutions for Cloud IT Ops":                      "HPE Solutions for Cloud IT Ops Competency Criteria Met",
+		"HPE Data Protection and Disaster Recovery Solutions": "HPE Data Protection and Disaster Recovery Solutions Competency Criteria Met",
+		"HPE Private Cloud Solutions for Business":            "HPE Private Cloud Solutions for Business Competency Criteria Met",
+		"HPE GreenLake":                                       "HPE GreenLake Competency Criteria Met",
+		"HPE Solutions for AI":                                "HPE Solutions for AI Competency Criteria Met",
+		"HPE Solutions for Sovereign Cloud":                   "HPE Solutions for Sovereign Cloud Competency Criteria Met",
+		"HPE Solutions for Sustainability":                    "HPE Solutions for Sustainability Competency Criteria Met",
+		"HPE Aruba Networking Central":                        "HPE Networking Central Criteria Met",
+		"HPE Aruba Networking SD-WAN":                         "HPE Networking SD-WAN Criteria Met",
+		"HPE Aruba Networking Secure Service Edge":            "HPE Networking Secure Service Edge Criteria Met",
+		"HPE Aruba Networking Data Center":                    "HPE Networking Data Center Competency Criteria Met",
+		"HPE Aruba Networking ClearPass":                      "HPE Networking ClearPass Competency Criteria Met",
+		"HPE Aruba Networking Private 5G":                     "HPE Networking Private 5G Competency Criteria Met",
 	}
 
 	// Some competency columns include the FY26 transition text
 	compWithTransition := map[string]string{
 		"HPE HPC for Enterprise":                              "HPE HPC for Enterprise Competency Criteria Met (incl. competencies from FY26 transition)",
-		"HPE Data Protection and Disaster Recovery Solutions":  "HPE Data Protection and Disaster Recovery Solutions Competency Criteria Met (incl. competencies from FY26 transition)",
-		"HPE Private Cloud Solutions for Business":             "HPE Private Cloud Solutions for Business Competency Criteria Met (incl. competencies from FY26 transition)",
-		"HPE Solutions for Cloud IT Ops":                       "HPE Solutions for Cloud IT Ops Competency Criteria Met (incl. competencies from FY26 transition)",
-		"HPE Solutions for Sustainability":                     "HPE Solutions for Sustainability Competency Criteria Met (incl. competencies from FY26 transition)",
-		"HPE Solutions for AI":                                 "HPE Solutions for AI Competency Criteria Met (incl. competencies from FY26 transition)",
-		"HPE Solutions for Sovereign Cloud":                    "HPE Solutions for Sovereign Cloud Competency Criteria Met (incl. competencies from FY26 transition)",
-		"HPE GreenLake":                                        "HPE GreenLake Competency Criteria Met (incl. competencies from FY26 transition)",
+		"HPE Data Protection and Disaster Recovery Solutions": "HPE Data Protection and Disaster Recovery Solutions Competency Criteria Met (incl. competencies from FY26 transition)",
+		"HPE Private Cloud Solutions for Business":            "HPE Private Cloud Solutions for Business Competency Criteria Met (incl. competencies from FY26 transition)",
+		"HPE Solutions for Cloud IT Ops":                      "HPE Solutions for Cloud IT Ops Competency Criteria Met (incl. competencies from FY26 transition)",
+		"HPE Solutions for Sustainability":                    "HPE Solutions for Sustainability Competency Criteria Met (incl. competencies from FY26 transition)",
+		"HPE Solutions for AI":                                "HPE Solutions for AI Competency Criteria Met (incl. competencies from FY26 transition)",
+		"HPE Solutions for Sovereign Cloud":                   "HPE Solutions for Sovereign Cloud Competency Criteria Met (incl. competencies from FY26 transition)",
+		"HPE GreenLake":                                       "HPE GreenLake Competency Criteria Met (incl. competencies from FY26 transition)",
 	}
 
 	var comps []domain.PartnerCompetency
@@ -364,4 +365,68 @@ func mapCompLevelsFromRow(row []string, cm columnMap, prefix string) []domain.Pa
 		}
 	}
 	return levels
+}
+
+// validateColumns checks that critical columns exist in the column map.
+// Returns diagnostic strings for any missing columns with fix instructions.
+func validateColumns(cm columnMap, cfg CenterConfig) []string {
+	var diags []string
+
+	// Critical identity columns (must exist in every sheet)
+	criticalCols := []string{
+		"Signing Entity Party ID",
+		"Party Name",
+		"Country",
+		"HPE Organization",
+		"Theater",
+		"Sub-Region",
+	}
+
+	for _, col := range criticalCols {
+		if _, ok := cm[col]; !ok {
+			if _, ok2 := cm[strings.ToLower(col)]; !ok2 {
+				diags = append(diags, fmt.Sprintf(
+					"❌ КОЛОНКА НЕ НАЙДЕНА: %q в листе %q\n"+
+						"   FIX: HPE переименовала колонку? Найдите похожую и обновите partnerColumns в mapper.go",
+					col, cfg.SheetName))
+			}
+		}
+	}
+
+	// Tier columns per center (at least one tier should have Criteria Met)
+	for _, tier := range []domain.Tier{domain.TierBusiness, domain.TierSilver, domain.TierGold, domain.TierPlatinum} {
+		tn := tierNames[tier]
+		criteriaMet := buildTierColumnName(cfg.Prefix, tn, "Criteria Met")
+		volumeActuals := buildTierColumnName(cfg.Prefix, tn, "Volume Actuals ($)")
+
+		if _, ok := cm[criteriaMet]; !ok {
+			if _, ok2 := cm[strings.ToLower(criteriaMet)]; !ok2 {
+				diags = append(diags, fmt.Sprintf(
+					"⚠️  КОЛОНКА ТИРА НЕ НАЙДЕНА: %q в листе %q\n"+
+						"   FIX: проверьте формат: \"%s <TierName> <Suffix>\" в header row %d",
+					criteriaMet, cfg.SheetName, cfg.Prefix, cfg.HeaderRow))
+			}
+		}
+		if _, ok := cm[volumeActuals]; !ok {
+			if _, ok2 := cm[strings.ToLower(volumeActuals)]; !ok2 {
+				diags = append(diags, fmt.Sprintf(
+					"⚠️  КОЛОНКА ОБЪЁМА НЕ НАЙДЕНА: %q в листе %q\n"+
+						"   FIX: HPE могла изменить формат суммы. Проверьте header row %d",
+					volumeActuals, cfg.SheetName, cfg.HeaderRow))
+			}
+		}
+	}
+
+	// FY26 quarterly columns (will break when FY27 arrives)
+	q1Col := cfg.Prefix + " Comp Q126"
+	if _, ok := cm[q1Col]; !ok {
+		if _, ok2 := cm[strings.ToLower(q1Col)]; !ok2 {
+			diags = append(diags, fmt.Sprintf(
+				"⚠️  КВАРТАЛЬНАЯ КОЛОНКА НЕ НАЙДЕНА: %q в листе %q\n"+
+					"   FIX: если это FY27 файл, обновите кварталы в mapCompLevelsFromRow() — Q126→Q127 и т.д.",
+				q1Col, cfg.SheetName))
+		}
+	}
+
+	return diags
 }
