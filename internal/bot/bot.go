@@ -26,7 +26,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	searchHandler := handlers.NewSearchHandler(partnerRepo)
 	partnerHandler := handlers.NewPartnerHandler(partnerRepo)
 	adminHandler := handlers.NewAdminHandler(userRepo, partnerRepo, partnerBotToken)
-	onboardHandler := handlers.NewOnboardingHandler(userRepo, cfg.AdminTelegramID)
+	onboardHandler := handlers.NewOnboardingHandler(userRepo, partnerRepo, cfg.AdminTelegramID)
 
 	// Create bot options
 	opts := []bot.Option{

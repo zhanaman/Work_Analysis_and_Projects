@@ -19,15 +19,17 @@ import (
 // OnboardingHandler handles the multi-step onboarding flow for HPE Partner Advisor bot.
 // Flow: role selection → name → [company (Partner)] → email → admin approval.
 type OnboardingHandler struct {
-	userRepo *storage.UserRepo
-	adminID  int64
+	userRepo    *storage.UserRepo
+	partnerRepo *storage.PartnerRepo
+	adminID     int64
 }
 
 // NewOnboardingHandler creates a new OnboardingHandler.
-func NewOnboardingHandler(userRepo *storage.UserRepo, adminID int64) *OnboardingHandler {
+func NewOnboardingHandler(userRepo *storage.UserRepo, partnerRepo *storage.PartnerRepo, adminID int64) *OnboardingHandler {
 	return &OnboardingHandler{
-		userRepo: userRepo,
-		adminID:  adminID,
+		userRepo:    userRepo,
+		partnerRepo: partnerRepo,
+		adminID:     adminID,
 	}
 }
 
@@ -257,11 +259,78 @@ func (h *OnboardingHandler) stepName(ctx context.Context, b *bot.Bot, chatID int
 }
 
 // stepCompany processes company name input (Partner only).
+// Validates that the company exists in the partner database.
 func (h *OnboardingHandler) stepCompany(ctx context.Context, b *bot.Bot, chatID int64, userID int, company string, role string) {
 	company = strings.TrimSpace(company)
 	if len(company) < 2 || len(company) > 200 {
 		return
 	}
+
+	// Validate company exists in partner database
+	matches, err := h.partnerRepo.SearchByNameFuzzy(ctx, company)
+	if err != nil {
+		slog.Error("onboard: search company", "error", err)
+	}
+
+	if len(matches) == 0 {
+		// No match — show error
+		user, _ := h.userRepo.GetByID(ctx, userID)
+		if user != nil && user.OnboardMsgID != nil {
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    chatID,
+				MessageID: *user.OnboardMsgID,
+				Text: fmt.Sprintf("⬛⬛⬛⬜ <b>Шаг 3/4</b>\n"+
+					"✅ Роль: 🏢 Partner\n"+
+					"✅ Имя: %s\n\n"+
+					"❌ Компания <b>%s</b> не найдена в базе.\n"+
+					"Введите точное название партнёрской компании:\n\n"+
+					"<i>Для отмены: /cancel</i>",
+					html.EscapeString(user.FullName),
+					html.EscapeString(company)),
+				ParseMode: models.ParseModeHTML,
+			})
+		}
+		return
+	}
+
+	// Check for exact match (case-insensitive)
+	exactMatch := ""
+	for _, m := range matches {
+		if strings.EqualFold(m, company) {
+			exactMatch = m
+			break
+		}
+	}
+
+	if exactMatch == "" {
+		// Fuzzy matches found but no exact match — show suggestions
+		user, _ := h.userRepo.GetByID(ctx, userID)
+		if user != nil && user.OnboardMsgID != nil {
+			var suggestions string
+			for _, m := range matches {
+				suggestions += fmt.Sprintf("• %s\n", html.EscapeString(m))
+			}
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    chatID,
+				MessageID: *user.OnboardMsgID,
+				Text: fmt.Sprintf("⬛⬛⬛⬜ <b>Шаг 3/4</b>\n"+
+					"✅ Роль: 🏢 Partner\n"+
+					"✅ Имя: %s\n\n"+
+					"Компания <b>%s</b> — похожие:\n"+
+					"%s\n"+
+					"Введите точное название из списка:\n\n"+
+					"<i>Для отмены: /cancel</i>",
+					html.EscapeString(user.FullName),
+					html.EscapeString(company),
+					suggestions),
+				ParseMode: models.ParseModeHTML,
+			})
+		}
+		return
+	}
+
+	// Exact match found — use correct case from DB
+	company = exactMatch
 
 	// Save company, advance to email step
 	if err := h.userRepo.SetOnboardData(ctx, userID, "email:"+role, "", company, ""); err != nil {
