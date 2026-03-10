@@ -15,7 +15,7 @@ func Start(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 	var text string
 	if user == nil || !user.IsAuthorized() {
-		text = "👋 Добро пожаловать в *PBM Partner Bot*\\!\n\n" +
+		text = "👋 Добро пожаловать в *HPE Partner Advisor*\\!\n\n" +
 			"Ваш запрос на доступ отправлен администратору\\.\n" +
 			"Ожидайте подтверждения\\."
 	} else {
@@ -38,7 +38,7 @@ func Start(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 // Help handles the /help command.
 func Help(ctx context.Context, b *bot.Bot, update *models.Update) {
-	text := "📖 *PBM Partner Bot — Справка*\n\n" +
+	text := "📖 *HPE Partner Advisor — Справка*\n\n" +
 		"🔍 /search `<имя>` — поиск партнёра по имени\n" +
 		"📊 /stats — статистика по базе партнёров\n" +
 		"ℹ️ /help — эта справка\n\n" +
