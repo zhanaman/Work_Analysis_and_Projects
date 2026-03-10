@@ -88,7 +88,7 @@ func Auth(userRepo *storage.UserRepo, adminID int64) bot.Middleware {
 				if chatID != 0 {
 					b.SendMessage(ctx, &bot.SendMessageParams{
 						ChatID: chatID,
-						Text:   "🚫 Ваш доступ отклонён. Обратитесь к администратору.",
+						Text:   "🚫 Ваш доступ отклонён.\nНажмите /start чтобы подать запрос повторно.",
 					})
 				}
 				return

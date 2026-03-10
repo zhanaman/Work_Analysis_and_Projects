@@ -95,8 +95,8 @@ func makeStartHandler(onboardHandler *handlers.OnboardingHandler) bot.HandlerFun
 			return
 		}
 
-		// If user is in onboarding or new → start/restart onboarding
-		if user.OnboardStep != "" || (!user.IsAuthorized() && user.Role == domain.RolePending) {
+		// If user is in onboarding, pending, or rejected → start/restart onboarding
+		if user.OnboardStep != "" || user.Role == domain.RolePending || user.Role == domain.RoleRejected {
 			onboardHandler.StartOnboarding(ctx, b, update.Message.Chat.ID, user.ID)
 			return
 		}
