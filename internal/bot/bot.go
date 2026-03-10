@@ -50,6 +50,8 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	// Register callback handlers
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "partner:", bot.MatchTypePrefix, partnerHandler.HandleCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "approve:", bot.MatchTypePrefix, adminHandler.HandleApproveCallback)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "role_pbm:", bot.MatchTypePrefix, adminHandler.HandleApproveCallback)
+	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "role_distri:", bot.MatchTypePrefix, adminHandler.HandleApproveCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "reject:", bot.MatchTypePrefix, adminHandler.HandleApproveCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "stats:", bot.MatchTypePrefix, adminHandler.HandleStatsCallback)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "menu:", bot.MatchTypePrefix, handlers.HandleMenuCallback(searchHandler, adminHandler))

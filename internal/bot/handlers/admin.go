@@ -451,15 +451,12 @@ func (h *AdminHandler) HandleUsers(ctx context.Context, b *bot.Bot, update *mode
 
 	for _, u := range pending {
 		text += fmt.Sprintf("• %s (@%s)\n", u.FullName, u.Username)
+		tgIDStr := strconv.FormatInt(u.TelegramID, 10)
 		rows = append(rows, []models.InlineKeyboardButton{
-			{
-				Text:         "✅ " + u.FullName,
-				CallbackData: "approve:" + strconv.FormatInt(u.TelegramID, 10),
-			},
-			{
-				Text:         "❌ Отклонить",
-				CallbackData: "reject:" + strconv.FormatInt(u.TelegramID, 10),
-			},
+			{Text: "✅ User", CallbackData: "approve:" + tgIDStr},
+			{Text: "👔 PBM", CallbackData: "role_pbm:" + tgIDStr},
+			{Text: "📦 Distri", CallbackData: "role_distri:" + tgIDStr},
+			{Text: "❌ Отклонить", CallbackData: "reject:" + tgIDStr},
 		})
 	}
 
@@ -491,6 +488,12 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 	if strings.HasPrefix(data, "approve:") {
 		action = "approve"
 		targetIDStr = strings.TrimPrefix(data, "approve:")
+	} else if strings.HasPrefix(data, "role_pbm:") {
+		action = "pbm"
+		targetIDStr = strings.TrimPrefix(data, "role_pbm:")
+	} else if strings.HasPrefix(data, "role_distri:") {
+		action = "distri"
+		targetIDStr = strings.TrimPrefix(data, "role_distri:")
 	} else if strings.HasPrefix(data, "reject:") {
 		action = "reject"
 		targetIDStr = strings.TrimPrefix(data, "reject:")
@@ -516,14 +519,25 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 
 	var newRole domain.Role
 	var responseText string
+	var userMsg string
 
-	if action == "approve" {
+	switch action {
+	case "approve":
 		newRole = domain.RoleUser
-		responseText = "✅ Пользователь одобрен!"
-	} else {
-		// Reject: set user back to pending
+		responseText = "✅ Пользователь одобрен (User)"
+		userMsg = "🎉 Ваш доступ к боту одобрен! Используйте /help для списка команд."
+	case "pbm":
+		newRole = domain.RolePBM
+		responseText = "👔 Назначен PBM"
+		userMsg = "🎉 Вы назначены как PBM! Используйте /help для списка команд."
+	case "distri":
+		newRole = domain.RoleDistri
+		responseText = "📦 Назначен Distri"
+		userMsg = "🎉 Вы назначены как Дистрибьютор! Используйте /help для списка команд."
+	default:
 		newRole = domain.RolePending
 		responseText = "❌ Пользователь отклонён"
+		userMsg = "❌ Ваш запрос на доступ отклонён."
 	}
 
 	if err := h.userRepo.SetRole(ctx, targetUser.ID, newRole); err != nil {
@@ -540,17 +554,21 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 		Text:            responseText,
 	})
 
-	if action == "approve" {
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: targetTgID,
-			Text:   "🎉 Ваш доступ к боту одобрен! Используйте /help для списка команд.",
-		})
-	} else {
-		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: targetTgID,
-			Text:   "❌ Ваш запрос на доступ отклонён.",
+	// Edit the admin message to remove buttons and show result
+	if update.CallbackQuery.Message.Message != nil {
+		b.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    update.CallbackQuery.Message.Message.Chat.ID,
+			MessageID: update.CallbackQuery.Message.Message.ID,
+			Text: fmt.Sprintf("%s\n\n👤 %s (@%s)",
+				responseText, targetUser.FullName, targetUser.Username),
+			ParseMode: models.ParseModeHTML,
 		})
 	}
+
+	b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: targetTgID,
+		Text:   userMsg,
+	})
 }
 
 // HandleChartCallback sends chart images based on callback data.

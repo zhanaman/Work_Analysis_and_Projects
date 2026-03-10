@@ -117,19 +117,31 @@ func fullName(u *models.User) string {
 }
 
 func notifyAdminNewUser(ctx context.Context, b *bot.Bot, adminID int64, u *models.User) {
+	tgIDStr := fmt.Sprintf("%d", u.ID)
 	text := fmt.Sprintf(
 		"\U0001f195 <b>Новый пользователь запрашивает доступ:</b>\n\n"+
 			"\U0001f464 %s\n"+
 			"\U0001f517 @%s\n"+
-			"\U0001f194 <code>%d</code>",
+			"\U0001f194 <code>%s</code>\n\n"+
+			"Выберите роль:",
 		html.EscapeString(fullName(u)),
 		html.EscapeString(u.Username),
-		u.ID,
+		tgIDStr,
 	)
 
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    adminID,
 		Text:      text,
 		ParseMode: models.ParseModeHTML,
+		ReplyMarkup: &models.InlineKeyboardMarkup{
+			InlineKeyboard: [][]models.InlineKeyboardButton{
+				{
+					{Text: "✅ User", CallbackData: "approve:" + tgIDStr},
+					{Text: "👔 PBM", CallbackData: "role_pbm:" + tgIDStr},
+					{Text: "📦 Distri", CallbackData: "role_distri:" + tgIDStr},
+					{Text: "❌ Отклонить", CallbackData: "reject:" + tgIDStr},
+				},
+			},
+		},
 	})
 }
