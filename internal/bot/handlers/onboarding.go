@@ -301,30 +301,12 @@ func (h *OnboardingHandler) stepEmail(ctx context.Context, b *bot.Bot, chatID in
 		return
 	}
 
-	// Role-specific validation
-	emailDomain := email[strings.LastIndex(email, "@")+1:]
-
+	// Role-specific validation: PBM must be @hpe.com
+	// Partner: admin reviews manually — no domain restriction
 	if role == "pbm" {
+		emailDomain := email[strings.LastIndex(email, "@")+1:]
 		if emailDomain != "hpe.com" {
 			h.emailError(ctx, b, chatID, user, role, "❌ PBM требует email @hpe.com:")
-			return
-		}
-	} else if role == "partner" {
-		// Fuzzy check: email domain should relate to company name
-		companyLower := strings.ToLower(user.CompanyName)
-		domainBase := strings.TrimSuffix(emailDomain, ".com")
-		domainBase = strings.TrimSuffix(domainBase, ".kz")
-		domainBase = strings.TrimSuffix(domainBase, ".uz")
-		domainBase = strings.TrimSuffix(domainBase, ".ru")
-		domainBase = strings.TrimSuffix(domainBase, ".net")
-		domainBase = strings.TrimSuffix(domainBase, ".org")
-		domainBase = strings.ToLower(domainBase)
-
-		// Check if domain base is contained in company or company in domain
-		if !strings.Contains(companyLower, domainBase) && !strings.Contains(domainBase, strings.ReplaceAll(companyLower, " ", "")) {
-			h.emailError(ctx, b, chatID, user, role,
-				fmt.Sprintf("❌ Домен email (%s) не совпадает с компанией «%s».\nВведите корпоративный email:",
-					emailDomain, user.CompanyName))
 			return
 		}
 	}
