@@ -703,6 +703,9 @@ func (h *AdminHandler) HandleRoleChangeMenu(ctx context.Context, b *bot.Bot, upd
 						{Text: "👔 PBM", CallbackData: "chset:" + tgIDStr + ":pbm"},
 						{Text: "📦 Distri", CallbackData: "chset:" + tgIDStr + ":distri"},
 					},
+					{
+						{Text: "❌ Отмена", CallbackData: "revokeno:" + tgIDStr},
+					},
 				},
 			},
 		})
