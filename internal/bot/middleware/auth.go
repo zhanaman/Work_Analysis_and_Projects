@@ -82,6 +82,18 @@ func Auth(userRepo *storage.UserRepo, adminID int64) bot.Middleware {
 				return
 			}
 
+			// Block rejected users permanently
+			if user.Role == domain.RoleRejected {
+				chatID := extractChatID(update)
+				if chatID != 0 {
+					b.SendMessage(ctx, &bot.SendMessageParams{
+						ChatID: chatID,
+						Text:   "🚫 Ваш доступ отклонён. Обратитесь к администратору.",
+					})
+				}
+				return
+			}
+
 			// Block pending users who have completed onboarding (waiting for admin)
 			if user.Role == domain.RolePending {
 				chatID := extractChatID(update)

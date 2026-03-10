@@ -438,36 +438,74 @@ func (h *AdminHandler) HandleUsers(ctx context.Context, b *bot.Bot, update *mode
 		return
 	}
 
-	if len(pending) == 0 {
+	active, err := h.userRepo.ListActivePBM(ctx)
+	if err != nil {
+		slog.Error("users: list active", "error", err)
+	}
+
+	if len(pending) == 0 && len(active) == 0 {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
-			Text:   "✅ Нет ожидающих одобрения пользователей.",
+			Text:   "✅ Нет пользователей.",
 		})
 		return
 	}
 
 	var rows [][]models.InlineKeyboardButton
-	text := fmt.Sprintf("⏳ <b>Ожидают одобрения: %d</b>\n\n", len(pending))
+	var text string
 
-	for _, u := range pending {
-		text += fmt.Sprintf("• %s (@%s)\n", u.FullName, u.Username)
-		tgIDStr := strconv.FormatInt(u.TelegramID, 10)
-		rows = append(rows, []models.InlineKeyboardButton{
-			{Text: "✅ User", CallbackData: "approve:" + tgIDStr},
-			{Text: "👔 PBM", CallbackData: "role_pbm:" + tgIDStr},
-			{Text: "📦 Distri", CallbackData: "role_distri:" + tgIDStr},
-			{Text: "❌ Отклонить", CallbackData: "reject:" + tgIDStr},
-		})
+	// Pending section
+	if len(pending) > 0 {
+		text += fmt.Sprintf("⏳ <b>Ожидают одобрения: %d</b>\n\n", len(pending))
+		for _, u := range pending {
+			email := u.Email
+			if email == "" {
+				email = "—"
+			}
+			text += fmt.Sprintf("• %s (📧 %s)\n", u.FullName, email)
+			tgIDStr := strconv.FormatInt(u.TelegramID, 10)
+			rows = append(rows, []models.InlineKeyboardButton{
+				{Text: "✅ User", CallbackData: "approve:" + tgIDStr},
+				{Text: "👔 PBM", CallbackData: "role_pbm:" + tgIDStr},
+				{Text: "📦 Distri", CallbackData: "role_distri:" + tgIDStr},
+				{Text: "❌ Отклонить", CallbackData: "reject:" + tgIDStr},
+			})
+		}
 	}
 
-	b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID:    update.Message.Chat.ID,
-		Text:      text,
-		ParseMode: models.ParseModeHTML,
-		ReplyMarkup: &models.InlineKeyboardMarkup{
-			InlineKeyboard: rows,
-		},
-	})
+	// Active section
+	if len(active) > 0 {
+		text += fmt.Sprintf("\n👥 <b>Активные: %d</b>\n\n", len(active))
+		for _, u := range active {
+			roleIcon := roleEmoji(u.Role)
+			region := ""
+			if u.RegionFilter != "" {
+				region = " [🌍 " + u.RegionFilter + "]"
+			}
+			email := u.Email
+			if email == "" {
+				email = "@" + u.Username
+			}
+			text += fmt.Sprintf("• %s (%s) — %s%s\n", u.FullName, email, roleIcon, region)
+		}
+	}
+
+	if len(rows) > 0 {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID:    update.Message.Chat.ID,
+			Text:      text,
+			ParseMode: models.ParseModeHTML,
+			ReplyMarkup: &models.InlineKeyboardMarkup{
+				InlineKeyboard: rows,
+			},
+		})
+	} else {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID:    update.Message.Chat.ID,
+			Text:      text,
+			ParseMode: models.ParseModeHTML,
+		})
+	}
 }
 
 // HandleApproveCallback processes approve/reject callbacks.
@@ -544,9 +582,11 @@ func (h *AdminHandler) HandleApproveCallback(ctx context.Context, b *bot.Bot, up
 		responseText = "📦 Назначен Distri"
 		userMsg = "🎉 Вы назначены как Дистрибьютор! Используйте /help для списка команд."
 	default:
-		newRole = domain.RolePending
+		// Reject: set rejected + reset onboard data
+		h.userRepo.ResetOnboard(ctx, targetUser.ID)
+		newRole = domain.RoleRejected
 		responseText = "❌ Пользователь отклонён"
-		userMsg = "❌ Ваш запрос на доступ отклонён."
+		userMsg = "🚫 Ваш запрос на доступ отклонён. Обратитесь к администратору."
 	}
 
 	if err := h.userRepo.SetRole(ctx, targetUser.ID, newRole); err != nil {
@@ -1035,5 +1075,21 @@ func (h *AdminHandler) HandlePartnerRejectConfirm(ctx context.Context, b *bot.Bo
 			Text:      fmt.Sprintf("❌ <b>Запрос отклонён</b>%s\n\nНажмите /start чтобы подать заново", commentLine),
 			ParseMode: "HTML",
 		})
+	}
+}
+
+// roleEmoji returns a display icon for a role.
+func roleEmoji(role domain.Role) string {
+	switch role {
+	case domain.RoleAdmin:
+		return "👑 Admin"
+	case domain.RolePBM:
+		return "👔 PBM"
+	case domain.RoleDistri:
+		return "📦 Distri"
+	case domain.RoleUser:
+		return "✅ User"
+	default:
+		return string(role)
 	}
 }

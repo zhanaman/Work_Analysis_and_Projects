@@ -6,11 +6,12 @@ import "time"
 type Role string
 
 const (
-	RolePending Role = "pending" // Awaiting admin approval
-	RoleUser    Role = "user"    // Approved user (future: partner self-service)
-	RoleDistri  Role = "distri"  // Distributor — sees sub-partner cards
-	RolePBM     Role = "pbm"    // PBM colleague (e.g. Daulet — RMC only)
-	RoleAdmin   Role = "admin"  // Full access (all CCA)
+	RolePending  Role = "pending"  // Awaiting admin approval
+	RoleRejected Role = "rejected" // Rejected by admin — blocked
+	RoleUser     Role = "user"     // Approved user (future: partner self-service)
+	RoleDistri   Role = "distri"   // Distributor — sees sub-partner cards
+	RolePBM      Role = "pbm"      // PBM colleague (e.g. Daulet — RMC only)
+	RoleAdmin    Role = "admin"    // Full access (all CCA)
 )
 
 // User represents a Telegram user registered with the bot.
@@ -20,15 +21,15 @@ type User struct {
 	Username      string    `json:"username"`
 	FullName      string    `json:"full_name"`
 	Role          Role      `json:"role"`
-	RegionFilter  string    `json:"region_filter"`   // "" = all CCA, "RMC" = RMC only
-	PartnerID     *int      `json:"partner_id"`      // NULL for PBM/admin, set for partner users
+	RegionFilter  string    `json:"region_filter"` // "" = all CCA, "RMC" = RMC only
+	PartnerID     *int      `json:"partner_id"`    // NULL for PBM/admin, set for partner users
 	Email         string    `json:"email"`
 	EmailVerified bool      `json:"email_verified"`
-	Lang          string    `json:"lang"`            // "ru" | "en"
-	BotType       string    `json:"bot_type"`        // "pbm" | "partner"
-	OnboardStep   string    `json:"onboard_step"`    // "" | "name" | "company" | "email"
-	CompanyName   string    `json:"company_name"`    // Partner-entered company name
-	OnboardMsgID  *int      `json:"onboard_msg_id"`  // Bot message ID for inline editing
+	Lang          string    `json:"lang"`           // "ru" | "en"
+	BotType       string    `json:"bot_type"`       // "pbm" | "partner"
+	OnboardStep   string    `json:"onboard_step"`   // "" | "name" | "company" | "email"
+	CompanyName   string    `json:"company_name"`   // Partner-entered company name
+	OnboardMsgID  *int      `json:"onboard_msg_id"` // Bot message ID for inline editing
 	CreatedAt     time.Time `json:"created_at"`
 }
 

@@ -177,15 +177,39 @@ func (r *UserRepo) SetRegionFilter(ctx context.Context, userID int, regionFilter
 	return nil
 }
 
-// ListPending returns all users awaiting admin approval.
+// ListPending returns PBM bot users awaiting admin approval (completed onboarding).
 func (r *UserRepo) ListPending(ctx context.Context) ([]domain.User, error) {
 	sql := `SELECT ` + userSelectCols + `
 		FROM users
-		WHERE role = $1
+		WHERE role = $1 AND bot_type = 'pbm' AND onboard_step = ''
 		ORDER BY created_at ASC`
 	rows, err := r.db.Pool.Query(ctx, sql, domain.RolePending)
 	if err != nil {
 		return nil, fmt.Errorf("list pending users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []domain.User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan user: %w", err)
+		}
+		users = append(users, *u)
+	}
+	return users, rows.Err()
+}
+
+// ListPendingPartners returns partner bot users awaiting approval.
+// ListActivePBM returns all approved PBM bot users (not pending/rejected).
+func (r *UserRepo) ListActivePBM(ctx context.Context) ([]domain.User, error) {
+	sql := `SELECT ` + userSelectCols + `
+		FROM users
+		WHERE bot_type = 'pbm' AND role NOT IN ($1, $2)
+		ORDER BY role ASC, full_name ASC`
+	rows, err := r.db.Pool.Query(ctx, sql, domain.RolePending, domain.RoleRejected)
+	if err != nil {
+		return nil, fmt.Errorf("list active pbm users: %w", err)
 	}
 	defer rows.Close()
 
@@ -244,4 +268,3 @@ func (r *UserRepo) ResetOnboard(ctx context.Context, userID int) error {
 	_, err := r.db.Pool.Exec(ctx, sql, domain.RolePending, userID)
 	return err
 }
-
