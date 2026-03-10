@@ -306,7 +306,7 @@ func (h *OnboardingHandler) stepEmail(ctx context.Context, b *bot.Bot, chatID in
 	if role == "pbm" {
 		emailDomain := email[strings.LastIndex(email, "@")+1:]
 		if emailDomain != "hpe.com" {
-			h.emailError(ctx, b, chatID, user, role, "❌ PBM требует email @hpe.com:")
+			h.emailError(ctx, b, chatID, user, role, "❌ У PBM email должен быть @hpe.com:")
 			return
 		}
 	}
