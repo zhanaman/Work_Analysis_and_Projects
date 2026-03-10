@@ -68,10 +68,17 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "prejectconfirm:", bot.MatchTypePrefix, adminHandler.HandlePartnerRejectConfirm)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "region:", bot.MatchTypePrefix, adminHandler.HandleRegionCallback)
 
-	// Register bot commands for the "/" menu (default = admin view)
+	// Register bot commands for the "/" menu
+	// Default (all users) = minimal commands (search + help)
+	defaultUser := &domain.User{Role: domain.RoleUser}
+	b.SetMyCommands(ctx, &bot.SetMyCommandsParams{
+		Commands: rbac.TelegramCommandsForUser(defaultUser),
+	})
+	// Admin gets expanded menu via per-chat scope
 	adminUser := &domain.User{Role: domain.RoleAdmin}
 	b.SetMyCommands(ctx, &bot.SetMyCommandsParams{
 		Commands: rbac.TelegramCommandsForUser(adminUser),
+		Scope:    &models.BotCommandScopeChat{ChatID: cfg.AdminTelegramID},
 	})
 
 	slog.Info("bot started, listening for updates...")
