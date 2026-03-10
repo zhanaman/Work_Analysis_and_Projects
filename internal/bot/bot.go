@@ -31,7 +31,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 			mw.Logging(),
 			mw.Auth(userRepo, cfg.AdminTelegramID),
 		),
-		bot.WithDefaultHandler(makeDefaultHandler(searchHandler)),
+		bot.WithDefaultHandler(makeDefaultHandler(searchHandler, adminHandler)),
 	}
 
 	// Initialize bot
@@ -77,7 +77,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 }
 
 // makeDefaultHandler creates a handler that forwards non-command text to search.
-func makeDefaultHandler(searchHandler *handlers.SearchHandler) bot.HandlerFunc {
+func makeDefaultHandler(searchHandler *handlers.SearchHandler, adminHandler *handlers.AdminHandler) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
 		if update.Message == nil || update.Message.Text == "" {
 			return
@@ -90,6 +90,11 @@ func makeDefaultHandler(searchHandler *handlers.SearchHandler) bot.HandlerFunc {
 				ChatID: update.Message.Chat.ID,
 				Text:   "❓ Неизвестная команда. Используйте /help для списка команд.",
 			})
+			return
+		}
+
+		// Check if admin is typing a rejection comment
+		if adminHandler.TryHandleRejectComment(ctx, b, update) {
 			return
 		}
 

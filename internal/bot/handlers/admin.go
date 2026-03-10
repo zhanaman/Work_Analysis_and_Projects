@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/bot/middleware"
 	"github.com/anonimouskz/pbm-partner-bot/internal/chart"
@@ -22,6 +23,9 @@ type AdminHandler struct {
 	userRepo        *storage.UserRepo
 	partnerRepo     *storage.PartnerRepo
 	partnerBotToken string // Partner bot token for cross-bot message editing
+
+	mu             sync.Mutex
+	pendingRejects map[int64]int // admin TG ID → partner user DB ID
 }
 
 // NewAdminHandler creates a new AdminHandler.
@@ -30,7 +34,71 @@ func NewAdminHandler(userRepo *storage.UserRepo, partnerRepo *storage.PartnerRep
 		userRepo:        userRepo,
 		partnerRepo:     partnerRepo,
 		partnerBotToken: partnerBotToken,
+		pendingRejects:  make(map[int64]int),
 	}
+}
+
+// SetPendingReject marks the admin as waiting for a rejection comment.
+func (h *AdminHandler) SetPendingReject(adminTGID int64, partnerUserID int) {
+	h.mu.Lock()
+	h.pendingRejects[adminTGID] = partnerUserID
+	h.mu.Unlock()
+}
+
+// TryHandleRejectComment checks if the admin has a pending reject and processes the comment.
+// Returns true if the message was handled as a reject comment.
+func (h *AdminHandler) TryHandleRejectComment(ctx context.Context, b *bot.Bot, update *models.Update) bool {
+	if update.Message == nil || update.Message.Text == "" {
+		return false
+	}
+
+	adminTGID := update.Message.From.ID
+
+	h.mu.Lock()
+	partnerUserID, ok := h.pendingRejects[adminTGID]
+	if ok {
+		delete(h.pendingRejects, adminTGID)
+	}
+	h.mu.Unlock()
+
+	if !ok {
+		return false
+	}
+
+	comment := strings.TrimSpace(update.Message.Text)
+
+	partnerUser, err := h.userRepo.GetByID(ctx, partnerUserID)
+	if err != nil {
+		slog.Error("reject comment: get user", "error", err)
+		return true
+	}
+
+	h.userRepo.ResetOnboard(ctx, partnerUserID)
+
+	commentLine := ""
+	if comment != "" {
+		commentLine = fmt.Sprintf("\n\U0001f4ac %s", comment)
+	}
+
+	// Send admin confirmation
+	b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: update.Message.Chat.ID,
+		Text: fmt.Sprintf("\u274c <b>\u041e\u0442\u043a\u043b\u043e\u043d\u0435\u043d\u043e</b>\n\n\U0001f464 %s\n\U0001f4e7 %s%s",
+			partnerUser.FullName, partnerUser.Email, commentLine),
+		ParseMode: models.ParseModeHTML,
+	})
+
+	// Edit partner's onboarding message via partner bot token
+	if partnerUser.OnboardMsgID != nil && h.partnerBotToken != "" {
+		tgapi.EditMessageText(h.partnerBotToken, tgapi.EditMessageTextParams{
+			ChatID:    partnerUser.TelegramID,
+			MessageID: *partnerUser.OnboardMsgID,
+			Text:      fmt.Sprintf("\u274c <b>\u0417\u0430\u043f\u0440\u043e\u0441 \u043e\u0442\u043a\u043b\u043e\u043d\u0451\u043d</b>%s\n\n\u041d\u0430\u0436\u043c\u0438\u0442\u0435 /start \u0447\u0442\u043e\u0431\u044b \u043f\u043e\u0434\u0430\u0442\u044c \u0437\u0430\u043d\u043e\u0432\u043e", commentLine),
+			ParseMode: "HTML",
+		})
+	}
+
+	return true
 }
 
 // HandleStats shows the compact stats dashboard hub.
@@ -746,6 +814,9 @@ func (h *AdminHandler) HandlePartnerApproval(ctx context.Context, b *bot.Bot, up
 		}
 
 		h.userRepo.SetOnboardData(ctx, userID, "rejected", partnerUser.FullName, partnerUser.CompanyName, partnerUser.Email)
+
+		// Track pending reject for comment input
+		h.SetPendingReject(update.CallbackQuery.From.ID, userID)
 	}
 }
 
