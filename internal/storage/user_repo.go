@@ -164,6 +164,19 @@ func (r *UserRepo) SetLang(ctx context.Context, userID int, lang string) error {
 	return err
 }
 
+// SetRegionFilter updates a PBM user's region filter (e.g. "RMC", "Azerbaijan", or "" for all).
+func (r *UserRepo) SetRegionFilter(ctx context.Context, userID int, regionFilter string) error {
+	sql := `UPDATE users SET region_filter = $1 WHERE id = $2`
+	tag, err := r.db.Pool.Exec(ctx, sql, regionFilter, userID)
+	if err != nil {
+		return fmt.Errorf("set region filter for user %d: %w", userID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("user with id %d not found", userID)
+	}
+	return nil
+}
+
 // ListPending returns all users awaiting admin approval.
 func (r *UserRepo) ListPending(ctx context.Context) ([]domain.User, error) {
 	sql := `SELECT ` + userSelectCols + `

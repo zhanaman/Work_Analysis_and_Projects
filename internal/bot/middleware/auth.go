@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"html"
 	"log/slog"
 
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
@@ -47,8 +48,8 @@ func Auth(userRepo *storage.UserRepo, adminID int64) bot.Middleware {
 			// Auto-promote admin by Telegram ID
 			if tgUser.ID == adminID && user.Role != domain.RoleAdmin {
 				if err := userRepo.SetRole(ctx, user.ID, domain.RoleAdmin); err != nil {
-				slog.Error("auth middleware: failed to promote admin", "error", err, "telegram_id", tgUser.ID)
-			}
+					slog.Error("auth middleware: failed to promote admin", "error", err, "telegram_id", tgUser.ID)
+				}
 				user.Role = domain.RoleAdmin
 			}
 
@@ -116,14 +117,19 @@ func fullName(u *models.User) string {
 }
 
 func notifyAdminNewUser(ctx context.Context, b *bot.Bot, adminID int64, u *models.User) {
-	text := "🆕 *Новый пользователь запрашивает доступ:*\n\n" +
-		"👤 " + fullName(u) + "\n" +
-		"🔗 @" + u.Username + "\n" +
-		"🆔 `" + fmt.Sprintf("%d", u.ID) + "`"
+	text := fmt.Sprintf(
+		"\U0001f195 <b>Новый пользователь запрашивает доступ:</b>\n\n"+
+			"\U0001f464 %s\n"+
+			"\U0001f517 @%s\n"+
+			"\U0001f194 <code>%d</code>",
+		html.EscapeString(fullName(u)),
+		html.EscapeString(u.Username),
+		u.ID,
+	)
 
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    adminID,
 		Text:      text,
-		ParseMode: models.ParseModeMarkdownV1,
+		ParseMode: models.ParseModeHTML,
 	})
 }

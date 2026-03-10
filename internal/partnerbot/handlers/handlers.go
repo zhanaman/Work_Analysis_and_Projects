@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"html"
 	"log/slog"
 	"regexp"
 	"strconv"
@@ -55,8 +56,8 @@ func (h *PartnerHandlers) HandleStart(ctx context.Context, b *bot.Bot, update *m
 	// Already approved — personalized welcome back with quick actions (4.4, 4.8)
 	if user.IsAuthorized() && user.PartnerID != nil {
 		b.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: chatID,
-			Text: fmt.Sprintf("\U0001f44b <b>С возвращением, %s!</b>\n\nВыберите действие:", user.FullName),
+			ChatID:    chatID,
+			Text:      fmt.Sprintf("\U0001f44b <b>С возвращением, %s!</b>\n\nВыберите действие:", user.FullName),
 			ParseMode: models.ParseModeHTML,
 			ReplyMarkup: &models.InlineKeyboardMarkup{
 				InlineKeyboard: [][]models.InlineKeyboardButton{
@@ -378,6 +379,18 @@ func (h *PartnerHandlers) onboardStepName(ctx context.Context, b *bot.Bot, chatI
 // onboardStepCompany processes Step 2: company name input.
 func (h *PartnerHandlers) onboardStepCompany(ctx context.Context, b *bot.Bot, chatID int64, user *domain.User, company string) {
 	if len(company) < 2 || len(company) > 200 {
+		if user.OnboardMsgID != nil {
+			b.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:    chatID,
+				MessageID: *user.OnboardMsgID,
+				Text: fmt.Sprintf("\u2b1b\u2b1b\u2b1c <b>\u0428\u0430\u0433 2/3</b>\n"+
+					"\u2705 \u0418\u043c\u044f: %s\n\n"+
+					"\u274c \u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u0434\u043e\u043b\u0436\u043d\u043e \u0431\u044b\u0442\u044c \u043e\u0442 2 \u0434\u043e 200 \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432.\n\n"+
+					"<i>\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u0438:\n\u0414\u043b\u044f \u043e\u0442\u043c\u0435\u043d\u044b: /cancel</i>",
+					html.EscapeString(user.FullName)),
+				ParseMode: models.ParseModeHTML,
+			})
+		}
 		return
 	}
 
@@ -431,10 +444,10 @@ func (h *PartnerHandlers) onboardStepCompany(ctx context.Context, b *bot.Bot, ch
 			var editErr error
 			if len(buttons) > 0 {
 				_, editErr = b.EditMessageText(ctx, &bot.EditMessageTextParams{
-					ChatID:    chatID,
-					MessageID: *user.OnboardMsgID,
-					Text:      msgText,
-					ParseMode: models.ParseModeHTML,
+					ChatID:      chatID,
+					MessageID:   *user.OnboardMsgID,
+					Text:        msgText,
+					ParseMode:   models.ParseModeHTML,
 					ReplyMarkup: &models.InlineKeyboardMarkup{InlineKeyboard: buttons},
 				})
 			} else {
@@ -583,4 +596,3 @@ func (h *PartnerHandlers) notifyAdminPartnerRequest(ctx context.Context, b *bot.
 		slog.Error("failed to send admin notification via PBM bot", "error", err)
 	}
 }
-

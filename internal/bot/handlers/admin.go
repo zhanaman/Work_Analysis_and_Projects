@@ -457,7 +457,7 @@ func (h *AdminHandler) HandleUsers(ctx context.Context, b *bot.Bot, update *mode
 				CallbackData: "approve:" + strconv.FormatInt(u.TelegramID, 10),
 			},
 			{
-				Text:         "❌ Reject",
+				Text:         "❌ Отклонить",
 				CallbackData: "reject:" + strconv.FormatInt(u.TelegramID, 10),
 			},
 		})
@@ -679,7 +679,7 @@ func (h *AdminHandler) chartRisk(ctx context.Context) (string, string) {
 	}
 
 	url := chart.RetentionRiskChart(safe, volRisk, certRisk, deepRisk)
-	
+
 	total := safe + volRisk + certRisk + deepRisk
 	caption := fmt.Sprintf("⚠️ <b>FY27 Retention Risk</b>\n"+
 		"Total %d Platinum/Gold partners evaluated against their current tier requirements.", total)
@@ -695,13 +695,13 @@ func (h *AdminHandler) chartConcentration(ctx context.Context) (string, string) 
 	}
 
 	url := chart.ConcentrationChart(top3, next7, rest, "Compute")
-	
+
 	total := top3 + next7 + rest
 	top3Pct := 0.0
 	if total > 0 {
 		top3Pct = (top3 / total) * 100
 	}
-	
+
 	caption := fmt.Sprintf("🧩 <b>Compute Revenue Concentration</b>\n"+
 		"Top 3 partners control %.1f%% of total volume.", top3Pct)
 
