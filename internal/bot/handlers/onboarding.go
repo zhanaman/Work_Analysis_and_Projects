@@ -327,7 +327,7 @@ func (h *OnboardingHandler) stepCompany(ctx context.Context, b *bot.Bot, chatID 
 					"<i>Для отмены: /cancel</i>",
 					html.EscapeString(user.FullName),
 					html.EscapeString(company)),
-				ParseMode: models.ParseModeHTML,
+				ParseMode:   models.ParseModeHTML,
 				ReplyMarkup: &models.InlineKeyboardMarkup{InlineKeyboard: buttons},
 			})
 		}
@@ -337,8 +337,15 @@ func (h *OnboardingHandler) stepCompany(ctx context.Context, b *bot.Bot, chatID 
 	// Exact match found — use correct case from DB
 	company = exactMatch
 
-	// Save company, advance to email step
-	if err := h.userRepo.SetOnboardData(ctx, userID, "email:"+role, "", company, ""); err != nil {
+	// Load user to preserve full_name when saving
+	currentUser, _ := h.userRepo.GetByID(ctx, userID)
+	fullName := ""
+	if currentUser != nil {
+		fullName = currentUser.FullName
+	}
+
+	// Save company, advance to email step (preserve full_name!)
+	if err := h.userRepo.SetOnboardData(ctx, userID, "email:"+role, fullName, company, ""); err != nil {
 		slog.Error("onboard: save company", "error", err)
 		return
 	}
@@ -530,8 +537,15 @@ func (h *OnboardingHandler) HandleCompanyCallback(ctx context.Context, b *bot.Bo
 		Text:            "✅ " + company,
 	})
 
-	// Save company, advance to email step
-	if err := h.userRepo.SetOnboardData(ctx, userDBID, "email:"+role, "", company, ""); err != nil {
+	// Load user to get full_name before saving
+	currentUser, _ := h.userRepo.GetByID(ctx, userDBID)
+	fullName := ""
+	if currentUser != nil {
+		fullName = currentUser.FullName
+	}
+
+	// Save company, advance to email step (preserve full_name!)
+	if err := h.userRepo.SetOnboardData(ctx, userDBID, "email:"+role, fullName, company, ""); err != nil {
 		slog.Error("onboard: save company from button", "error", err)
 		return
 	}
