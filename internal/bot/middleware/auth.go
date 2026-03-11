@@ -76,7 +76,8 @@ func Auth(userRepo *storage.UserRepo, adminID int64) bot.Middleware {
 			// Users in onboarding — allow text messages and onboard callbacks through
 			if user.OnboardStep != "" {
 				// Allow callbacks (inline buttons during onboarding)
-				if update.CallbackQuery != nil && strings.HasPrefix(update.CallbackQuery.Data, "onboard_role:") {
+				if update.CallbackQuery != nil && (strings.HasPrefix(update.CallbackQuery.Data, "onboard_role:") ||
+					strings.HasPrefix(update.CallbackQuery.Data, "onboard_company:")) {
 					ctx = context.WithValue(ctx, userCtxKey, user)
 					next(ctx, b, update)
 					return

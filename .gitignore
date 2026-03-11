@@ -31,3 +31,4 @@ data/
 pgdata/
 .agents/
 /import
+node_modules/

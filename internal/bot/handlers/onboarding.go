@@ -303,12 +303,18 @@ func (h *OnboardingHandler) stepCompany(ctx context.Context, b *bot.Bot, chatID 
 	}
 
 	if exactMatch == "" {
-		// Fuzzy matches found but no exact match — show suggestions
+		// Fuzzy matches found but no exact match — show suggestions as inline buttons
 		user, _ := h.userRepo.GetByID(ctx, userID)
 		if user != nil && user.OnboardMsgID != nil {
-			var suggestions string
+			var buttons [][]models.InlineKeyboardButton
 			for _, m := range matches {
-				suggestions += fmt.Sprintf("• %s\n", html.EscapeString(m))
+				cb := fmt.Sprintf("onboard_company:%d:%s:%s", userID, role, m)
+				if len(cb) > 64 {
+					cb = cb[:64]
+				}
+				buttons = append(buttons, []models.InlineKeyboardButton{
+					{Text: m, CallbackData: cb},
+				})
 			}
 			b.EditMessageText(ctx, &bot.EditMessageTextParams{
 				ChatID:    chatID,
@@ -317,13 +323,12 @@ func (h *OnboardingHandler) stepCompany(ctx context.Context, b *bot.Bot, chatID 
 					"✅ Роль: 🏢 Partner\n"+
 					"✅ Имя: %s\n\n"+
 					"Компания <b>%s</b> — похожие:\n"+
-					"%s\n"+
-					"Введите точное название из списка:\n\n"+
+					"Выберите из списка или введите точное название:\n\n"+
 					"<i>Для отмены: /cancel</i>",
 					html.EscapeString(user.FullName),
-					html.EscapeString(company),
-					suggestions),
+					html.EscapeString(company)),
 				ParseMode: models.ParseModeHTML,
+				ReplyMarkup: &models.InlineKeyboardMarkup{InlineKeyboard: buttons},
 			})
 		}
 		return
@@ -493,4 +498,64 @@ func (h *OnboardingHandler) notifyAdmin(ctx context.Context, b *bot.Bot, user *d
 			},
 		},
 	})
+}
+
+// HandleCompanyCallback processes the company selection inline button during onboarding.
+// Callback format: onboard_company:<user_db_id>:<role>:<company_name>
+func (h *OnboardingHandler) HandleCompanyCallback(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update.CallbackQuery == nil {
+		return
+	}
+
+	data := strings.TrimPrefix(update.CallbackQuery.Data, "onboard_company:")
+	// Parse: <user_db_id>:<role>:<company_name>
+	parts := strings.SplitN(data, ":", 3)
+	if len(parts) != 3 {
+		return
+	}
+
+	userDBID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return
+	}
+	role := parts[1]
+	company := parts[2]
+
+	if company == "" {
+		return
+	}
+
+	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+		Text:            "✅ " + company,
+	})
+
+	// Save company, advance to email step
+	if err := h.userRepo.SetOnboardData(ctx, userDBID, "email:"+role, "", company, ""); err != nil {
+		slog.Error("onboard: save company from button", "error", err)
+		return
+	}
+
+	user, err := h.userRepo.GetByID(ctx, userDBID)
+	if err != nil {
+		slog.Error("onboard: reload user", "error", err)
+		return
+	}
+
+	chatID := update.CallbackQuery.From.ID
+	if user.OnboardMsgID != nil {
+		b.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    chatID,
+			MessageID: *user.OnboardMsgID,
+			Text: fmt.Sprintf("⬛⬛⬛⬛ <b>Шаг 4/4</b>\n"+
+				"✅ Роль: 🏢 Partner\n"+
+				"✅ Имя: %s\n"+
+				"✅ Компания: %s\n\n"+
+				"Введите ваш корпоративный email:\n\n"+
+				"<i>Для отмены: /cancel</i>",
+				html.EscapeString(user.FullName),
+				html.EscapeString(company)),
+			ParseMode: models.ParseModeHTML,
+		})
+	}
 }
