@@ -41,6 +41,11 @@ func (r *PartnerRepo) Search(ctx context.Context, query string, regionFilter str
 		sql += fmt.Sprintf(` AND country = ANY($%d)`, argIdx)
 		args = append(args, domain.RMCCountries)
 		argIdx++
+	} else if regionFilter != "" {
+		// Individual country filter (e.g. "Turkmenistan", "Azerbaijan")
+		sql += fmt.Sprintf(` AND country = $%d`, argIdx)
+		args = append(args, regionFilter)
+		argIdx++
 	}
 
 	sql += ` ORDER BY similarity(name, $1) DESC LIMIT 10`
@@ -411,6 +416,9 @@ func (r *PartnerRepo) TierDistribution(ctx context.Context, regionFilter string)
 		if regionFilter == "RMC" {
 			query += ` AND country = ANY($1)`
 			args = append(args, domain.RMCCountries)
+		} else if regionFilter != "" {
+			query += ` AND country = $1`
+			args = append(args, regionFilter)
 		}
 		query += fmt.Sprintf(` GROUP BY %s ORDER BY COUNT(*) DESC`, membershipCol)
 
@@ -463,7 +471,6 @@ func (r *PartnerRepo) GetLastImportDate(ctx context.Context) (dataDate string, i
 	`).Scan(&dataDate, &importedAt)
 	return
 }
-
 
 // CountryStats returns partner count by country, sorted descending.
 func (r *PartnerRepo) CountryStats(ctx context.Context) ([]CountryStat, error) {
