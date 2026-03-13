@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/anonimouskz/pbm-partner-bot/internal/bot/middleware"
 	"github.com/anonimouskz/pbm-partner-bot/internal/domain"
 	"github.com/anonimouskz/pbm-partner-bot/internal/storage"
 	"github.com/go-telegram/bot"
@@ -14,12 +15,13 @@ import (
 
 // PartnerHandler handles partner detail views.
 type PartnerHandler struct {
-	partnerRepo *storage.PartnerRepo
+	partnerRepo  *storage.PartnerRepo
+	activityRepo *storage.ActivityRepo
 }
 
 // NewPartnerHandler creates a new PartnerHandler.
-func NewPartnerHandler(repo *storage.PartnerRepo) *PartnerHandler {
-	return &PartnerHandler{partnerRepo: repo}
+func NewPartnerHandler(repo *storage.PartnerRepo, activityRepo *storage.ActivityRepo) *PartnerHandler {
+	return &PartnerHandler{partnerRepo: repo, activityRepo: activityRepo}
 }
 
 // HandleCallback processes callback queries like "partner:123" or "partner:123:upgrade".
@@ -57,6 +59,23 @@ func (h *PartnerHandler) HandleCallback(ctx context.Context, b *bot.Bot, update 
 			ShowAlert:       true,
 		})
 		return
+	}
+
+	// Log partner view activity (fire-and-forget, only on first 'retention' view to avoid duplicate logs)
+	if viewMode == "retention" {
+		if user := middleware.UserFromContext(ctx); user != nil {
+			var uid *int
+			if user.ID != 0 {
+				id2 := user.ID
+				uid = &id2
+			}
+			pid := partner.ID
+			var chatID int64
+			if update.CallbackQuery.Message.Message != nil {
+				chatID = update.CallbackQuery.Message.Message.Chat.ID
+			}
+			h.activityRepo.Log(ctx, uid, chatID, domain.EventPartnerView, "", &pid, partner.Name)
+		}
 	}
 
 	b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{

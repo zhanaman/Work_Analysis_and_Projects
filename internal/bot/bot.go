@@ -20,12 +20,13 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	// Create repositories
 	partnerRepo := storage.NewPartnerRepo(db)
 	userRepo := storage.NewUserRepo(db)
+	activityRepo := storage.NewActivityRepo(db)
 
 	// Create handlers
 	partnerBotToken := os.Getenv("PARTNER_BOT_TOKEN")
-	searchHandler := handlers.NewSearchHandler(partnerRepo)
-	partnerHandler := handlers.NewPartnerHandler(partnerRepo)
-	adminHandler := handlers.NewAdminHandler(userRepo, partnerRepo, partnerBotToken)
+	searchHandler := handlers.NewSearchHandler(partnerRepo, activityRepo)
+	partnerHandler := handlers.NewPartnerHandler(partnerRepo, activityRepo)
+	adminHandler := handlers.NewAdminHandler(userRepo, partnerRepo, activityRepo, partnerBotToken)
 	onboardHandler := handlers.NewOnboardingHandler(userRepo, partnerRepo, cfg.AdminTelegramID)
 
 	// Create bot options
@@ -50,6 +51,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/search", bot.MatchTypePrefix, searchHandler.Handle)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/stats", bot.MatchTypeExact, adminHandler.HandleStats)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/users", bot.MatchTypeExact, adminHandler.HandleUsers)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/report", bot.MatchTypePrefix, adminHandler.HandleReport)
 
 	// Register callback handlers
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "onboard_role:", bot.MatchTypePrefix, onboardHandler.HandleRoleCallback)

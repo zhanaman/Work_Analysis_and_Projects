@@ -22,6 +22,7 @@ import (
 type AdminHandler struct {
 	userRepo        *storage.UserRepo
 	partnerRepo     *storage.PartnerRepo
+	activityRepo    *storage.ActivityRepo
 	partnerBotToken string // Partner bot token for cross-bot message editing
 
 	mu             sync.Mutex
@@ -29,10 +30,11 @@ type AdminHandler struct {
 }
 
 // NewAdminHandler creates a new AdminHandler.
-func NewAdminHandler(userRepo *storage.UserRepo, partnerRepo *storage.PartnerRepo, partnerBotToken string) *AdminHandler {
+func NewAdminHandler(userRepo *storage.UserRepo, partnerRepo *storage.PartnerRepo, activityRepo *storage.ActivityRepo, partnerBotToken string) *AdminHandler {
 	return &AdminHandler{
 		userRepo:        userRepo,
 		partnerRepo:     partnerRepo,
+		activityRepo:    activityRepo,
 		partnerBotToken: partnerBotToken,
 		pendingRejects:  make(map[int64]int),
 	}
