@@ -37,58 +37,74 @@ func (h *PartnerStatusHandler) Handle(ctx context.Context, b *bot.Bot, update *m
 
 	chatID := update.Message.Chat.ID
 
-	// Use PartnerID if available (linked partner record)
-	if user.PartnerID != nil {
-		partner, err := h.partnerRepo.GetByID(ctx, *user.PartnerID)
-		if err == nil {
-			card := formatPartnerCard(partner, "retention")
-			b.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID:    chatID,
-				Text:      card,
-				ParseMode: models.ParseModeHTML,
-			})
-			return
-		}
+	partner, err := h.resolvePartner(ctx, user)
+	if err != nil || partner == nil {
+		// Company not found in DB
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: chatID,
+			Text: fmt.Sprintf(
+				"🏢 <b>Ваша компания:</b> %s\n\n"+
+					"<i>Данные компании ещё не загружены в базу. "+
+					"Обратитесь к администратору.</i>",
+				html.EscapeString(user.CompanyName),
+			),
+			ParseMode: models.ParseModeHTML,
+		})
+		return
 	}
 
-	// Fallback: search by company name
-	if user.CompanyName != "" {
-		partners, err := h.partnerRepo.Search(ctx, user.CompanyName, "")
-		if err == nil && len(partners) > 0 {
-			// Find exact match first
-			for _, p := range partners {
-				if p.Name == user.CompanyName {
-					card := formatPartnerCard(&p, "retention")
-					b.SendMessage(ctx, &bot.SendMessageParams{
-						ChatID:    chatID,
-						Text:      card,
-						ParseMode: models.ParseModeHTML,
-					})
-					return
-				}
-			}
-			// Show closest match
-			card := formatPartnerCard(&partners[0], "retention")
-			b.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID:    chatID,
-				Text:      "🏢 <b>Данные вашей компании</b>\n\n" + card,
-				ParseMode: models.ParseModeHTML,
-			})
-			return
-		}
+	card := formatPartnerCard(partner, "retention")
+
+	// Inline buttons — same as PBM view
+	buttons := [][]models.InlineKeyboardButton{
+		{
+			{Text: "📈 Как повысить статус?", CallbackData: fmt.Sprintf("partner:%d:upgrade", partner.ID)},
+		},
 	}
 
-	// Company not found in DB yet
 	b.SendMessage(ctx, &bot.SendMessageParams{
-		ChatID: chatID,
-		Text: fmt.Sprintf(
-			"🏢 <b>Ваша компания:</b> %s\n\n"+
-				"<i>Данные компании ещё не загружены в базу. "+
-				"Обратитесь к администратору.</i>",
-			html.EscapeString(user.CompanyName),
-		),
+		ChatID:    chatID,
+		Text:      card,
 		ParseMode: models.ParseModeHTML,
+		ReplyMarkup: &models.InlineKeyboardMarkup{
+			InlineKeyboard: buttons,
+		},
 	})
+}
+
+// resolvePartner finds the partner record with full Tiers/Revenue data.
+// Tries PartnerID first (exact link), then falls back to name search + GetByID.
+func (h *PartnerStatusHandler) resolvePartner(ctx context.Context, user *domain.User) (*domain.Partner, error) {
+	// Path 1: user has an explicit PartnerID link
+	if user.PartnerID != nil {
+		return h.partnerRepo.GetByID(ctx, *user.PartnerID)
+	}
+
+	// Path 2: search by company name, then load full data via GetByID
+	if user.CompanyName == "" {
+		return nil, nil
+	}
+
+	results, err := h.partnerRepo.Search(ctx, user.CompanyName, "")
+	if err != nil || len(results) == 0 {
+		return nil, err
+	}
+
+	// Prefer exact name match
+	var matchID int
+	for _, p := range results {
+		if p.Name == user.CompanyName {
+			matchID = p.ID
+			break
+		}
+	}
+	// Fallback to closest similarity match
+	if matchID == 0 {
+		matchID = results[0].ID
+	}
+
+	// Load full data (Tiers, Revenue, Competencies, etc.)
+	return h.partnerRepo.GetByID(ctx, matchID)
 }
 
 // RoleAwareFooter returns a context-appropriate footer line for /help and /start.
