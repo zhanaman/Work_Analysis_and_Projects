@@ -19,10 +19,11 @@ func Start(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 
 	text := fmt.Sprintf("👋 Привет, <b>%s</b>!\n\n"+
-		"Я помогу быстро найти информацию по любому партнёру.\n\n",
+		"Я помогу быстро найти информацию по партнёрам HPE.\n\n",
 		html.EscapeString(user.FullName))
 
 	text += rbac.HelpTextForUser(user)
+	text += RoleAwareFooter(user)
 
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    update.Message.Chat.ID,
@@ -37,7 +38,7 @@ func Help(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 	text := "📖 <b>HPE Partner Advisor — Справка</b>\n\n"
 	text += rbac.HelpTextForUser(user)
-	text += "\n<i>Просто напишите имя партнёра, и я найду его!</i>"
+	text += RoleAwareFooter(user)
 
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:    update.Message.Chat.ID,

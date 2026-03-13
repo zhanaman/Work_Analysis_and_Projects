@@ -23,9 +23,9 @@ const (
 // RolePermissions maps each role to its allowed permissions.
 // Edit this map to grant/revoke capabilities for any role.
 var RolePermissions = map[domain.Role][]Permission{
-	domain.RoleAdmin:  {SearchPartners, ViewStats, ViewCharts, ManageUsers},
+	domain.RoleAdmin:  {SearchPartners, ViewStats, ViewCharts, ManageUsers, ViewOwnCard},
 	domain.RolePBM:    {SearchPartners},
-	domain.RoleUser:   {SearchPartners},
+	domain.RoleUser:   {ViewOwnCard},   // Partner: can only see their own company card
 	domain.RoleDistri: {ViewOwnCard, ViewSubPartners, SearchPartners},
 	// Partner bot users use ViewOwnCard but are checked in partner-bot middleware
 }

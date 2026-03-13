@@ -27,7 +27,12 @@ var Commands = []BotCommand{
 		Description: "🔍 Поиск партнёра",
 		HelpLine:    "🔍 /search <code>&lt;имя&gt;</code> — поиск партнёра",
 		Permission:  SearchPartners,
-		AlwaysShow:  true,
+	},
+	{
+		Command:     "status",
+		Description: "🏢 Моя компания",
+		HelpLine:    "🏢 /status — данные вашей компании",
+		Permission:  ViewOwnCard,
 	},
 	{
 		Command:     "help",

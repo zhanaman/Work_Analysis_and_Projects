@@ -26,6 +26,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	partnerBotToken := os.Getenv("PARTNER_BOT_TOKEN")
 	searchHandler := handlers.NewSearchHandler(partnerRepo, activityRepo)
 	partnerHandler := handlers.NewPartnerHandler(partnerRepo, activityRepo)
+	partnerStatusHandler := handlers.NewPartnerStatusHandler(partnerRepo)
 	adminHandler := handlers.NewAdminHandler(userRepo, partnerRepo, activityRepo, partnerBotToken)
 	onboardHandler := handlers.NewOnboardingHandler(userRepo, partnerRepo, cfg.AdminTelegramID)
 
@@ -49,6 +50,7 @@ func Run(ctx context.Context, cfg *config.Config, db *storage.Postgres) error {
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/cancel", bot.MatchTypeExact, makeCancelHandler(userRepo))
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/help", bot.MatchTypeExact, handlers.Help)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/search", bot.MatchTypePrefix, searchHandler.Handle)
+	b.RegisterHandler(bot.HandlerTypeMessageText, "/status", bot.MatchTypeExact, partnerStatusHandler.Handle)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/stats", bot.MatchTypeExact, adminHandler.HandleStats)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/users", bot.MatchTypeExact, adminHandler.HandleUsers)
 	b.RegisterHandler(bot.HandlerTypeMessageText, "/report", bot.MatchTypePrefix, adminHandler.HandleReport)
